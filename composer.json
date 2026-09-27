@@ -1,0 +1,42 @@
+{
+  "name": "touchque-authenticator/php-sdk",
+  "description": "Official PHP SDK for TouchQue Authenticator (2FA/MFA, passkeys, adaptive auth)",
+  "version": "2.0.0",
+  "type": "library",
+  "license": "MIT",
+  "homepage": "https://touchque.com",
+  "support": {
+    "source": "https://github.com/Touchque/touchque-php"
+  },
+  "authors": [
+    {
+      "name": "TouchQue",
+      "email": "developer@touchque.com"
+    }
+  ],
+  "require": {
+    "php": ">=7.4",
+    "ext-curl": "*",
+    "ext-json": "*"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.6",
+    "illuminate/http": "^9.0 || ^10.0 || ^11.0"
+  },
+  "suggest": {
+    "illuminate/http": "For the Laravel middleware (TouchQue\\Laravel\\TouchQueMiddleware)."
+  },
+  "autoload": {
+    "psr-4": {
+      "TouchQue\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "TouchQue\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit --testdox tests"
+  }
+}

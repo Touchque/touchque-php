@@ -1,0 +1,29 @@
+name: publish
+
+# If the Packagist package is already linked to this repo, pushing a "vX.Y.Z"
+# git tag auto-updates it through Packagist's own GitHub webhook. This
+# workflow is a final pre-release check (composer validate + full test suite)
+# plus an optional manual Packagist API update trigger.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+      - run: composer validate --strict
+      - run: composer install --no-interaction --prefer-dist
+      - run: composer test
+      - name: Trigger Packagist update
+        if: ${{ vars.PACKAGIST_PACKAGE_NAME != '' }}
+        run: |
+          curl -XPOST -H 'content-type:application/json' \
+            "https://packagist.org/api/update-package?username=${{ vars.PACKAGIST_USERNAME }}&apiToken=${{ secrets.PACKAGIST_TOKEN }}" \
+            -d '{"repository":{"url":"https://packagist.org/packages/${{ vars.PACKAGIST_PACKAGE_NAME }}"}}'
