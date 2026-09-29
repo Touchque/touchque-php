@@ -3,7 +3,9 @@
 namespace TouchQue\Resources;
 
 use TouchQue\Config;
+use TouchQue\Exceptions\TouchQueWebhookReplayException;
 use TouchQue\Exceptions\TouchQueWebhookSignatureException;
+use TouchQue\Webhook\ReplayCache;
 
 class Webhook
 {
@@ -24,12 +26,20 @@ class Webhook
      * @param string|null $signature         The `x-signature` header value. If null, the
      *                                       `signature` field inside the body is used.
      * @param int         $toleranceSeconds  Reject a callback whose signed `timestamp` is
-     *                                       further than this from now. 0 disables the check.
+     *                                       missing, invalid or further than this from now.
+     *                                       0 disables the check.
+     * @param ReplayCache|null $replayCache  When set, a second delivery of the same `jti`
+     *                                       throws TouchQueWebhookReplayException.
      * @return array The decoded payload if the signature is valid.
      * @throws TouchQueWebhookSignatureException
+     * @throws TouchQueWebhookReplayException (a subclass of the above)
      */
-    public function verify(string $rawBody, ?string $signature = null, int $toleranceSeconds = self::DEFAULT_TOLERANCE_SECONDS): array
-    {
+    public function verify(
+        string $rawBody,
+        ?string $signature = null,
+        int $toleranceSeconds = self::DEFAULT_TOLERANCE_SECONDS,
+        ?ReplayCache $replayCache = null
+    ): array {
         // Decode as objects (NOT assoc) so nested objects round-trip as objects:
         // an assoc decode turns `{}` into `[]` and a numeric-keyed object into a
         // JSON array when re-encoded, breaking the canonical form.
@@ -51,10 +61,27 @@ class Webhook
             throw new TouchQueWebhookSignatureException('Invalid webhook signature');
         }
 
-        if ($toleranceSeconds > 0 && isset($obj->timestamp) && is_string($obj->timestamp)) {
-            $ts = strtotime($obj->timestamp);
-            if ($ts !== false && abs(time() - $ts) > $toleranceSeconds) {
+        // TouchQue always signs a timestamp, so a missing or unparseable one
+        // fails closed instead of skipping the freshness check.
+        if ($toleranceSeconds > 0) {
+            $ts = isset($obj->timestamp) && is_string($obj->timestamp) ? strtotime($obj->timestamp) : false;
+            if ($ts === false) {
+                throw new TouchQueWebhookSignatureException('Webhook timestamp is missing or invalid');
+            }
+            if (abs(time() - $ts) > $toleranceSeconds) {
                 throw new TouchQueWebhookSignatureException('Webhook timestamp is outside the allowed window');
+            }
+        }
+
+        if ($replayCache !== null) {
+            $jti = $obj->jti ?? null;
+            if (!is_string($jti) || $jti === '') {
+                throw new TouchQueWebhookSignatureException('Webhook jti is missing');
+            }
+            // Remember it for twice the window so it outlives any timestamp
+            // that could still pass the freshness check.
+            if (!$replayCache->checkAndSet($jti, max($toleranceSeconds * 2, 600))) {
+                throw new TouchQueWebhookReplayException($jti);
             }
         }
 

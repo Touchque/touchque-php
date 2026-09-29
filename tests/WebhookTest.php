@@ -6,6 +6,8 @@ use PHPUnit\Framework\TestCase;
 use TouchQue\Config;
 use TouchQue\Resources\Webhook;
 use TouchQue\Exceptions\TouchQueWebhookSignatureException;
+use TouchQue\Exceptions\TouchQueWebhookReplayException;
+use TouchQue\Webhook\MemoryReplayCache;
 
 class WebhookTest extends TestCase
 {
@@ -126,7 +128,8 @@ class WebhookTest extends TestCase
         $canonical = '{"context":{"z":1,"a":2},"event":"login.confirmed","requestId":"req_1","status":"SUCCESS"}';
         $rawBody = $this->serverWebhookRaw($canonical);
 
-        $result = $this->makeWebhook()->verify($rawBody);
+        // The hand-written body has no timestamp, so the freshness check is off.
+        $result = $this->makeWebhook()->verify($rawBody, null, 0);
 
         $this->assertSame('req_1', $result['requestId']);
         $this->assertSame(['z' => 1, 'a' => 2], $result['context']);
@@ -138,7 +141,8 @@ class WebhookTest extends TestCase
         $canonical = '{"event":"login.confirmed","meta":{},"requestId":"req_1"}';
         $rawBody = $this->serverWebhookRaw($canonical);
 
-        $result = $this->makeWebhook()->verify($rawBody);
+        // The hand-written body has no timestamp, so the freshness check is off.
+        $result = $this->makeWebhook()->verify($rawBody, null, 0);
 
         $this->assertSame('req_1', $result['requestId']);
     }
@@ -153,5 +157,53 @@ class WebhookTest extends TestCase
         } catch (TouchQueWebhookSignatureException $e) {
             $this->assertStringNotContainsStringIgnoringCase('expected', $e->getMessage());
         }
+    }
+
+    // ── Replay protection (A12) ──
+
+    public function testMissingOrInvalidTimestampFailsClosed(): void
+    {
+        $noTs = $this->freshPayload();
+        unset($noTs['timestamp']);
+        foreach ([$this->serverWebhook($noTs), $this->serverWebhook($this->freshPayload(['timestamp' => 'not-a-date']))] as $body) {
+            try {
+                $this->makeWebhook()->verify($body);
+                $this->fail('a webhook without a valid timestamp must be rejected');
+            } catch (TouchQueWebhookSignatureException $e) {
+                $this->assertStringContainsString('timestamp', $e->getMessage());
+            }
+        }
+    }
+
+    public function testReplayCacheRejectsTheSecondDeliveryOfTheSameJti(): void
+    {
+        $cache = new MemoryReplayCache();
+        $body = $this->serverWebhook($this->freshPayload(['jti' => 'once']));
+        $this->assertSame('once', $this->makeWebhook()->verify($body, null, 300, $cache)['jti']);
+        try {
+            $this->makeWebhook()->verify($body, null, 300, $cache);
+            $this->fail('expected a replay exception');
+        } catch (TouchQueWebhookReplayException $e) {
+            $this->assertSame('once', $e->getJti());
+            $this->assertInstanceOf(TouchQueWebhookSignatureException::class, $e);
+        }
+        $this->makeWebhook()->verify($this->serverWebhook($this->freshPayload(['jti' => 'other'])), null, 300, $cache);
+
+        $noJti = $this->freshPayload();
+        unset($noJti['jti']);
+        $this->expectException(TouchQueWebhookSignatureException::class);
+        $this->makeWebhook()->verify($this->serverWebhook($noJti), null, 300, $cache);
+    }
+
+    public function testForgedWebhookDoesNotPoisonTheReplayCache(): void
+    {
+        $cache = new MemoryReplayCache();
+        try {
+            $this->makeWebhook()->verify($this->serverWebhook($this->freshPayload(['jti' => 'victim']), 'wrong'), null, 300, $cache);
+            $this->fail('forged webhook accepted');
+        } catch (TouchQueWebhookSignatureException $e) {
+        }
+        $result = $this->makeWebhook()->verify($this->serverWebhook($this->freshPayload(['jti' => 'victim'])), null, 300, $cache);
+        $this->assertSame('victim', $result['jti']);
     }
 }
