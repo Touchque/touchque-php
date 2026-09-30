@@ -142,6 +142,56 @@ class ContractTest extends TestCase
         $this->assertSame(['phishingResistant' => false, 'method' => 'offline_code'], $ok['approved']['assurance']);
     }
 
+    public function testGuardPhoneRejectKillsTheOfflineQr(): void
+    {
+        $tq = $this->client();
+        self::$api->link('reject-offline@acme.com');
+
+        $start = Guard::run($tq, 'reject-offline@acme.com', 'LOGIN');
+        $off = Guard::run($tq, 'reject-offline@acme.com', 'LOGIN', null, null, null, null, $start['body']['token'], true);
+        $this->assertSame('offline', $off['body']['touchque']['state']);
+        // The QR is linked to the push the user started.
+        $qrCalls = array_values(array_filter(self::$api->calls(), fn ($c) => $c['path'] === '/offline/challenge'));
+        $this->assertSame($start['body']['touchque']['requestId'], end($qrCalls)['body']['requestId']);
+
+        // While the QR is up the page keeps polling; nothing changes until the phone answers.
+        $poll = Guard::run($tq, 'reject-offline@acme.com', 'LOGIN', null, null, null, null, $off['body']['token']);
+        $this->assertSame(202, $poll['status']);
+        $this->assertSame('offline', $poll['body']['touchque']['state']);
+        $this->assertSame($off['body']['touchque']['offline']['challengeId'], $poll['body']['touchque']['offline']['challengeId']);
+
+        self::$api->reject(); // the user taps Reject on the phone
+
+        $rejected = Guard::run($tq, 'reject-offline@acme.com', 'LOGIN', null, null, null, null, $poll['body']['token']);
+        $this->assertSame(403, $rejected['status']);
+        $this->assertSame('rejected', $rejected['body']['touchque']['state']);
+        // Even the right code from the QR already on screen does not finish it…
+        $late = Guard::run($tq, 'reject-offline@acme.com', 'LOGIN', null, null, null, null, $off['body']['token'], false, 'ABCD123');
+        $this->assertSame('rejected', $late['body']['touchque']['state']);
+        $this->assertSame('request_rejected', $late['body']['touchque']['reason']);
+        // …nor the time-based code…
+        $totp = Guard::run($tq, 'reject-offline@acme.com', 'LOGIN', null, null, null, null, $off['body']['token'], false, '123456', 'totp');
+        $this->assertSame('rejected', $totp['body']['touchque']['state']);
+        // …and pressing offline mode again gets no QR for that sign-in.
+        $again = Guard::run($tq, 'reject-offline@acme.com', 'LOGIN', null, null, null, null, $start['body']['token'], true);
+        $this->assertSame('rejected', $again['body']['touchque']['state']);
+    }
+
+    public function testGuardOfflineQrCarriesTheNumberForMatching(): void
+    {
+        $tq = $this->client();
+        self::$api->link('nm-offline@acme.com');
+        self::$api->opts(['numberMatch' => true]);
+        try {
+            $start = Guard::run($tq, 'nm-offline@acme.com', 'LOGIN');
+            $this->assertSame('47', $start['body']['touchque']['number']);
+            $off = Guard::run($tq, 'nm-offline@acme.com', 'LOGIN', null, null, null, null, $start['body']['token'], true);
+            $this->assertSame('47', $off['body']['touchque']['offline']['challengeCode']);
+        } finally {
+            self::$api->opts(['numberMatch' => false]);
+        }
+    }
+
     public function testGuardFrozenRateLimitedBlocked(): void
     {
         self::$api->link('blocked@acme.com');

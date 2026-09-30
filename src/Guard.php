@@ -100,7 +100,7 @@ class Guard
             if ($bound && $code && (($bound['st'] ?? null) === 'offline' || $codeType === 'totp')) {
                 $isTotp = $codeType === 'totp';
                 $res = $isTotp
-                    ? $client->offline->verifyTotp($user, $code, $action, $ip)
+                    ? $client->offline->verifyTotp($user, $code, $action, $ip, $bound['rid'] ?? null)
                     : $client->offline->verify((string)($bound['oc'] ?? ''), $code);
                 $forThis = (empty($res['externalUsername']) || strtolower($res['externalUsername']) === strtolower($user))
                     && (empty($res['type']) || $res['type'] === $action);
@@ -113,22 +113,36 @@ class Guard
                     ]];
                 }
                 if (($res['reason'] ?? null) === 'invalid_code' && !$isTotp) {
-                    return $issue(['state' => 'offline', 'offline' => ['challengeId' => (string)($bound['oc'] ?? ''), 'attemptsLeft' => $res['attemptsLeft'] ?? null]], ['oc' => $bound['oc'] ?? null]);
+                    return $issue(['state' => 'offline', 'offline' => ['challengeId' => (string)($bound['oc'] ?? ''), 'attemptsLeft' => $res['attemptsLeft'] ?? null]], ['oc' => $bound['oc'] ?? null, 'rid' => $bound['rid'] ?? null, 'n' => $bound['n'] ?? null]);
                 }
                 if (($res['reason'] ?? null) === 'invalid_code') {
-                    return $issue(['state' => 'offline', 'reason' => 'invalid_code'], ['oc' => $bound['oc'] ?? null]);
+                    return $issue(['state' => 'offline', 'reason' => 'invalid_code'], ['oc' => $bound['oc'] ?? null, 'rid' => $bound['rid'] ?? null, 'n' => $bound['n'] ?? null]);
+                }
+                // The phone rejected the push this QR belongs to: the whole sign-in is over.
+                if (($res['reason'] ?? null) === 'request_rejected') {
+                    return $issue(['state' => 'rejected', 'requestId' => $bound['rid'] ?? null, 'reason' => 'request_rejected']);
                 }
                 return $issue(['state' => ($res['reason'] ?? null) === 'expired' ? 'expired' : 'blocked', 'reason' => $res['reason'] ?? 'offline_failed']);
             }
 
             if ($offline) {
                 try {
-                    $ch = $client->offline->challenge($user, $action, $norm ?: null, $ip, $userAgent);
-                    return $issue(['state' => 'offline', 'offline' => [
+                    // Link the QR to the push it follows: a phone-side rejection kills it, and a push that asked
+                    // for number matching makes the QR ask for the same number.
+                    $rid = $bound['rid'] ?? null;
+                    $ch = $client->offline->challenge($user, $action, $norm ?: null, $ip, $userAgent, null, true, $rid);
+                    $offlineStep = [
                         'challengeId' => $ch['challengeId'] ?? null, 'qrDataUrl' => $ch['qrDataUrl'] ?? null,
                         'expiresAt' => $ch['expiresAt'] ?? null, 'totpAvailable' => $ch['totpAvailable'] ?? null,
-                    ]]);
+                    ];
+                    if (!empty($ch['challengeCode'])) {
+                        $offlineStep['challengeCode'] = $ch['challengeCode'];
+                    }
+                    return $issue(['state' => 'offline', 'offline' => $offlineStep], ['rid' => $rid, 'n' => $ch['challengeCode'] ?? ($bound['n'] ?? null)]);
                 } catch (TouchQueAPIException $err) {
+                    if ($err->getStatus() === 409 && ($err->getErrorCode() ?? ($err->getData()['error'] ?? null)) === 'request_rejected') {
+                        return $issue(['state' => 'rejected', 'requestId' => $bound['rid'] ?? null, 'reason' => 'request_rejected']);
+                    }
                     if ($err->getStatus() < 500) {
                         return $issue(['state' => 'blocked', 'reason' => $err->getErrorCode() ?? ($err->getData()['error'] ?? 'offline_unavailable')]);
                     }
@@ -136,8 +150,9 @@ class Guard
                 }
             }
 
-            // Waiting on a push / passkey: poll, and run the action once approved.
-            if ($bound && !empty($bound['rid']) && in_array($bound['st'] ?? null, ['waiting', 'passkey_required'], true)) {
+            // Waiting on a push / passkey — or showing the offline QR next to a push that is still open: poll, and run
+            // the action once approved. While the QR is up a phone-side REJECT ends the attempt at once.
+            if ($bound && !empty($bound['rid']) && in_array($bound['st'] ?? null, ['waiting', 'passkey_required', 'offline'], true)) {
                 $now = Steps::check($client, $bound['rid']);
                 if ($now['state'] === 'approved') {
                     try {
@@ -148,6 +163,10 @@ class Guard
                         }
                         throw $err;
                     }
+                }
+                if (($bound['st'] ?? null) === 'offline' && in_array($now['state'], ['waiting', 'expired', 'passkey_required'], true)) {
+                    // Still (or no longer) pending: nothing changed for the user — keep showing the QR they have.
+                    return $issue(['state' => 'offline', 'offline' => ['challengeId' => (string)($bound['oc'] ?? '')]], ['oc' => $bound['oc'] ?? null, 'rid' => $bound['rid'], 'n' => $bound['n'] ?? null]);
                 }
                 if (in_array($now['state'], ['waiting', 'passkey_required'], true)) {
                     return $issue(['state' => $now['state'], 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null], ['n' => $bound['n'] ?? null]);

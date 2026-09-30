@@ -55,4 +55,31 @@ class OfflineTest extends TestCase
         $result = (new Offline($http))->verifyTotp('a@b.com', '123456', 'WITHDRAW');
         $this->assertTrue($result['approved']);
     }
+
+    public function testChallengeLinksThePushAndAsksForNumberMatching(): void
+    {
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->once())
+            ->method('post')
+            ->with('/offline/challenge', [
+                'externalUsername' => 'a@b.com', 'type' => 'LOGIN', 'requestId' => 'req-1', 'requireNumberMatch' => true,
+            ])
+            ->willReturn(['challengeId' => 'c1', 'challengeCode' => '47']);
+
+        $ch = (new Offline($http))->challenge('a@b.com', 'LOGIN', null, null, null, null, true, 'req-1', true);
+        $this->assertSame('47', $ch['challengeCode']);
+    }
+
+    public function testVerifyTotpForwardsRequestIdAndARejectedRequestIsAResult(): void
+    {
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->once())
+            ->method('post')
+            ->with('/offline/totp/verify', $this->callback(fn ($b) => ($b['requestId'] ?? null) === 'req-1'))
+            ->willThrowException(new TouchQueAPIException('rejected', 410, ['reason' => 'request_rejected']));
+
+        $result = (new Offline($http))->verifyTotp('a@b.com', 'ABCDEFG', 'LOGIN', null, 'req-1');
+        $this->assertFalse($result['approved']);
+        $this->assertSame('request_rejected', $result['reason']);
+    }
 }
