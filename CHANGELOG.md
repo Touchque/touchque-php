@@ -3,6 +3,32 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.0] — 2026-10-11
+
+### Added
+- **`ApprovalProof::verify($proof, [...])`** — check the phone's own signature over the request,
+  action, number-match code and details it showed, without trusting TouchQue (same as the Node SDK's
+  `verifyApprovalProof`). Fails closed without `expectedPublicKey` unless `allowUnpinnedKey` is true.
+  Needs ext-openssl. Tested against `fixtures/approval-proof-vectors.json`, shared by all SDKs.
+- **`$tq->login->reportFraud($requestId, $reason, $note)`** — report a request you later learned was
+  fraud (chargeback, account takeover, social engineering). TouchQue's risk engine uses it as its
+  strongest training signal; the request's status does not change. Idempotent.
+- **Relay routes (`TouchQue\Relay\RelayHandler`)**, the PHP port of the Node SDK's `touchqueRouter`: the 14 routes
+  `@touchque/web` calls (`POST /login`, enrollment, offline QR / codes, passkey sign-in, approval and management),
+  framework-agnostic, returning a `RelayResponse`. Same security rules as Node: auth-required routes answer
+  `401 UNAUTHORIZED_FOR_2FA` without a user; `getLoginUser` binds `/login` and the offline routes to the user who
+  passed your first factor (`401 FIRST_FACTOR_REQUIRED`), and the offline routes are off
+  (`403 OFFLINE_REQUIRES_FIRST_FACTOR`) until it or `allowOfflineWithoutFirstFactor` is set; `/enroll/start` never
+  replaces a linked phone (`409 already_linked`); `/login` uses the guard's two-phase contract; sessions open only
+  for the user TouchQue returns; relay errors forward only TouchQue's error code (`502 relay_error` for 5xx /
+  network failures).
+- **Built-in rate limiting** for the pre-auth routes (`FixedWindowLimiter`: 20 per IP and 5 per username per route
+  per minute, `429 RATE_LIMITED` + `Retry-After`) with pluggable storage (`RateLimitStore`; the default
+  `MemoryRateLimitStore` only helps in long-running workers, so use APCu/Redis under PHP-FPM).
+- **Laravel adapter `TouchQue\Laravel\TouchQueRelay`**: `TouchQueRelay::routes($router, 'touchque')` registers the
+  routes on a controller (route-cache safe); `onAuthenticated` gets the Laravel request (session) and the pending
+  response.
+
 ## [3.1.0] — 2026-09-30
 
 ### Security

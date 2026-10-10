@@ -56,6 +56,48 @@ The signed-in user comes from Laravel's own auth (`$request->user()`). For a
 login route (no signed-in user yet), extend `TouchQueMiddleware` and override
 `resolveUser()` to return whoever just passed your password step.
 
+## Relay routes for `@touchque/web`
+
+`RelayHandler` serves every route a frontend needs (`POST /login`, enrollment,
+passkey ceremonies, offline codes) so you don't hand-write them — the same
+routes and rules as the Node SDK's `touchqueRouter`. In Laravel, bind the
+controller once and register the routes:
+
+```php
+// a service provider
+use Illuminate\Http\Request;
+use TouchQue\Laravel\TouchQueRelay;
+use TouchQue\Relay\RelayResponse;
+
+$this->app->singleton(TouchQueRelay::class, fn ($app) => new TouchQueRelay($app->make(\TouchQue\TouchQue::class), [
+    // The user who already passed your password step. Binds POST /login and the
+    // offline routes to them; the offline routes stay off (403) without it.
+    'getLoginUser' => fn (Request $r) => $r->session()->get('password_verified_user'),
+    'onAuthenticated' => function (Request $r, RelayResponse $res, array $info) {
+        $r->session()->regenerate();
+        $r->session()->put('user', $info['externalUsername']); // the user TouchQue approved
+    },
+    // 'rateLimit' => ['store' => new MyRedisRateLimitStore($redis)],  // see below
+]));
+
+// routes/web.php
+TouchQueRelay::routes(app('router'), 'touchque');
+```
+
+The signed-in user for enrollment and passkey management defaults to
+`$request->user()` (override with `'getUserId' => fn (Request $r) => ...`).
+Pre-auth routes are rate limited per IP and per username (20 / 5 per minute per
+route; `429 RATE_LIMITED` + `Retry-After`). The default counter store is in
+memory, which under PHP-FPM starts empty on every request: give it a shared
+store by implementing `TouchQue\Relay\RateLimitStore` over APCu or Redis, or
+pass `'rateLimit' => false` and rate limit in front of the routes.
+
+Without Laravel, build a `RelayHandler` with the same options plus a required
+`getUserId`, and call
+`$relay->handle($method, $pathAfterYourPrefix, $jsonBody, $clientIp, $userAgent, $headerGetter, $request)`;
+it returns a `RelayResponse` (`getStatus()`, `getBody()`, `getHeaders()`,
+`send()`), or `null` when no relay route matches.
+
 ## The three primitives, if you're not using Laravel
 
 ```php
@@ -115,6 +157,34 @@ try {
 } catch (\TouchQue\Exceptions\TouchQueWebhookSignatureException $e) {
     return response('', 403); // not from TouchQue
 }
+```
+
+## Verifying the device proof (no need to trust TouchQue)
+
+Every approval from a phone with a hardware key carries `approvalProof`: the phone's own
+signature over the request id, action, number-match code and the exact details it showed.
+
+```php
+use TouchQue\ApprovalProof;
+
+$ok = ApprovalProof::verify($event['approvalProof'] ?? null, [
+    'requestId' => $requestId, 'type' => 'WITHDRAW', 'details' => $details,
+    'challengeCode' => $challengeCode,
+    'expectedPublicKey' => $user->touchque_device_key, // stored from their first verified approval
+]);
+```
+
+Without `expectedPublicKey` it returns `false` unless `allowUnpinnedKey` is `true` (trust on first
+use — store `$proof['publicKey']`, then pin it).
+
+## Reporting fraud
+
+Learned later that an approved request was fraud? Report it — it is the strongest signal
+TouchQue's risk engine learns from, and it stays in your audit log:
+
+```php
+$tq->login->reportFraud($requestId, 'chargeback', 'Disputed by card holder');
+// reason: 'chargeback' | 'account_takeover' | 'social_engineering' | 'other'
 ```
 
 ## Errors

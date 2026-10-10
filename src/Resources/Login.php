@@ -6,6 +6,7 @@ use TouchQue\Http\HttpClient;
 use TouchQue\Exceptions\TouchQueTimeoutException;
 use TouchQue\Exceptions\TouchQueRejectedException;
 use TouchQue\Exceptions\TouchQuePasskeyRequiredError;
+use TouchQue\Exceptions\TouchQueConfigException;
 
 class Login
 {
@@ -157,5 +158,34 @@ class Login
     public function consume(string $requestId): array
     {
         return $this->http->post('/login/' . rawurlencode($requestId) . '/consume', []);
+    }
+
+    /** Reasons accepted by reportFraud(). */
+    public const FRAUD_REASONS = ['chargeback', 'account_takeover', 'social_engineering', 'other'];
+
+    /**
+     * Reports a request you later learned was fraud — a chargeback, a
+     * confirmed account takeover, a scam the user was talked into. TouchQue's
+     * risk engine learns from it (it is the strongest signal it gets) and the
+     * report is kept in your audit log. The request's status does not change.
+     * Safe to call more than once: a repeat answers `alreadyReported => true`.
+     *
+     * @param string|null $reason one of self::FRAUD_REASONS (default 'other')
+     * @param string|null $note   free text for your audit log, at most 500 characters
+     * @return array{reported: bool, alreadyReported: bool, requestId: string}
+     */
+    public function reportFraud(string $requestId, ?string $reason = null, ?string $note = null): array
+    {
+        if ($requestId === '') {
+            throw new TouchQueConfigException('reportFraud() needs the request id');
+        }
+        $payload = [];
+        if ($reason !== null && $reason !== '') {
+            $payload['reason'] = $reason;
+        }
+        if ($note !== null && $note !== '') {
+            $payload['note'] = $note;
+        }
+        return $this->http->post('/login/' . rawurlencode($requestId) . '/report-fraud', $payload);
     }
 }
