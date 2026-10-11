@@ -67,7 +67,8 @@ class Guard
         ?string $token = null,
         bool $offline = false,
         ?string $code = null,
-        ?string $codeType = null
+        ?string $codeType = null,
+        bool $enroll = true
     ): array {
         if (!$user) {
             return ['status' => 401, 'body' => [
@@ -175,7 +176,7 @@ class Guard
             }
 
             // Anything else (no/foreign token, enrollment finished, new attempt): start.
-            return $issue(Steps::start($client, $action, $user, $norm ?: null, $referenceId, $ip, $userAgent));
+            return $issue(Steps::start($client, $action, $user, $norm ?: null, $referenceId, $ip, $userAgent, $enroll));
         } catch (TouchQueConfigException $err) {
             error_log('[TouchQue] ' . $err->getMessage());
             return ['status' => 500, 'body' => [

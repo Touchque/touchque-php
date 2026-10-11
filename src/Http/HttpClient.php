@@ -8,7 +8,7 @@ use TouchQue\Exceptions\TouchQueNetworkException;
 
 class HttpClient
 {
-    private const SDK_VERSION = '3.2.0';
+    private const SDK_VERSION = '3.2.1';
 
     private Config $config;
 

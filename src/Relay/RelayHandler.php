@@ -229,7 +229,10 @@ class RelayHandler
             $input['token'],
             $input['offline'],
             $input['code'],
-            $input['codeType']
+            $input['codeType'],
+            // Pre-auth: a typed username proves nothing, so no linking QR unless
+            // getLoginUser ties this route to the password step.
+            $this->getLoginUser !== null
         );
         if (!isset($result['approved'])) {
             $res = new RelayResponse($result['status'], $result['body']);

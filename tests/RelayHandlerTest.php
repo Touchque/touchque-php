@@ -290,6 +290,29 @@ class RelayHandlerTest extends TestCase
 
     // ── first-factor binding ─────────────────────────────────────────────
 
+    public function testPreAuthLoginNeverHandsAnUnlinkedUserALinkingQr(): void
+    {
+        $user = self::user('unlinked');
+        $before = count(array_filter(self::$api->calls(), fn ($c) => $c['path'] === '/auth/generate-secret'));
+        $res = $this->call($this->handler($this->realClient(), ['rateLimit' => false]), 'POST', '/login', ['externalUsername' => $user]);
+        $this->assertSame(202, $res->getStatus());
+        $this->assertSame('enroll', $res->getBody()['touchque']['state']);
+        $this->assertArrayNotHasKey('enroll', $res->getBody()['touchque']);
+        $after = count(array_filter(self::$api->calls(), fn ($c) => $c['path'] === '/auth/generate-secret'));
+        $this->assertSame($before, $after);
+    }
+
+    public function testLoginBehindThePasswordStepStillOffersLinking(): void
+    {
+        $user = self::user('unlinked2');
+        $h = $this->handler($this->realClient(), ['rateLimit' => false, 'getLoginUser' => function () use ($user) {
+            return $user;
+        }]);
+        $res = $this->call($h, 'POST', '/login', []);
+        $this->assertSame(202, $res->getStatus());
+        $this->assertNotEmpty($res->getBody()['touchque']['enroll']['qrCodeDataUrl']);
+    }
+
     public function testLoginPushesOnlyToTheFirstFactorUser(): void
     {
         $tq = $this->realClient();
