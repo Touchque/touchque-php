@@ -56,6 +56,35 @@ class Guard
      * `["status" => <code>, "body" => ["touchque" => step, "token" => ...]]`
      * (send that JSON body with that status code).
      */
+    /**
+     * True when this request only polls an approval that is already on its way:
+     * a valid token bound to this user/action/details, still waiting, and no
+     * offline switch or typed code. It can only read the status, never start a
+     * push, so relays do not count it against the per-user push limit (with a
+     * 1.5 s poll the 6th poll was refused after 7.5 s).
+     */
+    public static function isStatusPoll(
+        TouchQue $client,
+        ?string $user,
+        string $action,
+        ?array $details = null,
+        ?string $referenceId = null,
+        ?string $token = null,
+        bool $offline = false,
+        ?string $code = null
+    ): bool {
+        if (!$user || !$token || $offline || $code) {
+            return false;
+        }
+        $claims = Steps::verifyGuardToken($client->getApiSecret(), $token);
+        if (!$claims || empty($claims['rid'])) {
+            return false;
+        }
+        return $claims['u'] === $user && $claims['a'] === $action
+            && $claims['d'] === Steps::detailsDigest($details) && $claims['r'] === $referenceId
+            && in_array($claims['st'] ?? null, ['waiting', 'passkey_required', 'offline'], true);
+    }
+
     public static function run(
         TouchQue $client,
         ?string $user,

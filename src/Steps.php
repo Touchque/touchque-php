@@ -83,10 +83,16 @@ class Steps
                 return ['state' => 'passkey_required', 'requestId' => $res['requestId'] ?? null,
                     'expiresAt' => $res['expiresAt'] ?? null, 'details' => $norm ?: null];
             }
-            return [
+            $step = [
                 'state' => 'waiting', 'requestId' => $res['requestId'] ?? null, 'number' => $res['challengeCode'] ?? null,
                 'expiresAt' => $res['expiresAt'] ?? null, 'details' => $norm ?: null,
             ];
+            if (!empty($res['telemetryToken'])) {
+                // Only when the workspace collects behavioural signals: lets the browser post
+                // them for this one request (@touchque/web does it when given `telemetry`).
+                $step['telemetryToken'] = $res['telemetryToken'];
+            }
+            return $step;
         } catch (TouchQueAPIException $err) {
             $code = $err->getErrorCode() ?? ($err->getData()['error'] ?? null);
             if ($err->getStatus() === 404 && ($code === 'device_not_linked' || stripos($err->getMessage(), 'linked device') !== false)) {

@@ -73,6 +73,11 @@ class RelayHandler
 
     private static bool $warnedPreAuth = false;
 
+    /** A 1.5 s poll for a 2-minute push is 80 requests: one attempt's worth of polls. */
+    private const POLLS_PER_ATTEMPT = 10;
+    /** Reserved action: the approval on the phone that unlocks adding a passkey. */
+    private const PASSKEY_ENROLL_ACTION = 'PASSKEY_ENROLL';
+
     private const ROUTES = [
         'POST /enroll/start' => 'enrollStart',
         'GET /enroll/status' => 'enrollStatus',
@@ -210,19 +215,24 @@ class RelayHandler
         if ($user instanceof RelayResponse) {
             return $user;
         }
-        $limited = $this->allow($ctx, 'login', $user);
-        if ($limited !== null) {
-            return $limited;
-        }
         // Same two-phase contract as Guard / TouchQueMiddleware: 202 with the step
         // (matching number / first-time QR / offline QR) until approved; the page
         // re-sends with X-TouchQue-Token.
         $input = Guard::inputFromHeaders($ctx['header']);
+        $details = $this->getDetails !== null ? ($this->getDetails)($ctx['req']) : null;
+        // Polling an approval already sent is not a new attempt: it has its own,
+        // larger per-IP budget and never uses the user's push budget.
+        $limited = Guard::isStatusPoll($this->tq, $user, $this->actionType, $details, null, $input['token'], $input['offline'], $input['code'])
+            ? $this->allow($ctx, 'login-poll', null, self::POLLS_PER_ATTEMPT)
+            : $this->allow($ctx, 'login', $user);
+        if ($limited !== null) {
+            return $limited;
+        }
         $result = Guard::run(
             $this->tq,
             $user,
             $this->actionType,
-            $this->getDetails !== null ? ($this->getDetails)($ctx['req']) : null,
+            $details,
             null,
             $ctx['ip'] !== '' ? $ctx['ip'] : null,
             $ctx['userAgent'],
@@ -447,14 +457,48 @@ class RelayHandler
 
     // ── Passkey: enrollment / management (auth required) ─────────────────
 
+    /**
+     * A user with a linked phone approves adding a passkey there first: a passkey
+     * approves requests on its own, so a stolen session of your app must not be able
+     * to add one. Same two-phase contract as /login: 202 with the step (and number to
+     * show) until approved, then the options.
+     */
     private function passkeyRegisterOptions(array $ctx): RelayResponse
     {
         $userId = $this->userId($ctx);
         if ($userId === null) {
             return self::unauthorized();
         }
+        $input = Guard::inputFromHeaders($ctx['header']);
         try {
-            return new RelayResponse(200, $this->tq->webauthn->registerOptions($userId, true));
+            if (!$input['token']) {
+                try {
+                    return new RelayResponse(200, $this->tq->webauthn->registerOptions($userId, true));
+                } catch (TouchQueAPIException $error) {
+                    if ($error->getStatus() !== 403 || $error->getErrorCode() !== 'enrollment_approval_required') {
+                        throw $error;
+                    }
+                }
+            }
+            $limited = Guard::isStatusPoll($this->tq, $userId, self::PASSKEY_ENROLL_ACTION, null, null, $input['token'], $input['offline'], $input['code'])
+                ? $this->allow($ctx, 'login-poll', null, self::POLLS_PER_ATTEMPT)
+                : $this->allow($ctx, 'passkey-enroll', $userId);
+            if ($limited !== null) {
+                return $limited;
+            }
+            $result = Guard::run(
+                $this->tq, $userId, self::PASSKEY_ENROLL_ACTION, null, null,
+                $ctx['ip'] !== '' ? $ctx['ip'] : null, $ctx['userAgent'],
+                $input['token'], $input['offline'], $input['code'], $input['codeType'], false
+            );
+            if (!isset($result['approved'])) {
+                $res = new RelayResponse($result['status'], $result['body']);
+                if (!empty($result['body']['touchque']['retryAfter'])) {
+                    $res->setHeader('Retry-After', (string)$result['body']['touchque']['retryAfter']);
+                }
+                return $res->setHeader('Cache-Control', 'no-store');
+            }
+            return new RelayResponse(200, $this->tq->webauthn->registerOptions($userId, true, $result['approved']['requestId']));
         } catch (\Throwable $error) {
             return self::relayError($error);
         }
@@ -534,12 +578,12 @@ class RelayHandler
     }
 
     /** null when allowed; otherwise the 429 to send (this IP or this user is over the limit for $route). */
-    private function allow(array $ctx, string $route, ?string $user = null): ?RelayResponse
+    private function allow(array $ctx, string $route, ?string $user = null, int $ipFactor = 1): ?RelayResponse
     {
         if ($this->limiter === null) {
             return null;
         }
-        $ipWait = $this->limiter->hit('ip|' . $route . '|' . ($ctx['ip'] !== '' ? $ctx['ip'] : 'unknown'), $this->limiter->perIp());
+        $ipWait = $this->limiter->hit('ip|' . $route . '|' . ($ctx['ip'] !== '' ? $ctx['ip'] : 'unknown'), $this->limiter->perIp() * $ipFactor);
         $userWait = ($user !== null && $user !== '') ? $this->limiter->hit('user|' . $route . '|' . $user, $this->limiter->perUser()) : 0;
         $wait = max($ipWait, $userWait);
         if ($wait === 0) {

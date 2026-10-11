@@ -571,6 +571,59 @@ class RelayHandlerTest extends TestCase
         $this->assertSame(3, $this->loginPushesFor($victim));
     }
 
+    public function testPollingASentPushIsNotCountedAgainstThePushLimit(): void
+    {
+        // The browser polls every 1.5 s; with the default limiter the 6th poll
+        // used to be a 429 while the push was still on the phone.
+        $tq = $this->realClient();
+        $user = self::user('poller');
+        self::$api->link($user);
+        $h = $this->handler($tq, []);
+        $first = $this->call($h, 'POST', '/login', ['externalUsername' => $user]);
+        $this->assertSame(202, $first->getStatus());
+        $token = $first->getBody()['token'];
+        for ($i = 0; $i < 10; $i++) {
+            if ($i === 9) {
+                self::$api->approve();
+            }
+            $res = $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-TouchQue-Token' => $token]);
+            $this->assertSame($i === 9 ? 200 : 202, $res->getStatus(), "poll $i");
+        }
+        // New attempts still are: 4 more starts fill the per-user budget of 5.
+        for ($i = 0; $i < 4; $i++) {
+            $this->call($h, 'POST', '/login', ['externalUsername' => $user]);
+        }
+        $this->assertSame(429, $this->call($h, 'POST', '/login', ['externalUsername' => $user])->getStatus());
+        $this->assertSame(429, $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-TouchQue-Token' => 'forged'])->getStatus());
+    }
+
+    public function testAddingAPasskeyNeedsThePhone(): void
+    {
+        // A passkey approves requests on its own, so a stolen session of the partner
+        // app must not be able to add one for a user with a linked phone.
+        $tq = $this->realClient();
+        $user = self::user('enrol');
+        $h = $this->handler($tq, ['getUserId' => static function () use ($user) {
+            return $user;
+        }]);
+        $res = $this->call($h, 'POST', '/passkey/register/options', []);
+        $this->assertSame(200, $res->getStatus());
+        $this->assertSame('reg-challenge', $res->getBody()['challenge']);
+
+        self::$api->link($user);
+        $first = $this->call($h, 'POST', '/passkey/register/options', []);
+        $this->assertSame(202, $first->getStatus());
+        $this->assertSame('waiting', $first->getBody()['touchque']['state']);
+        $this->assertSame('47', $first->getBody()['touchque']['number']);
+        $token = ['X-TouchQue-Token' => $first->getBody()['token']];
+        $this->assertSame(202, $this->call($h, 'POST', '/passkey/register/options', [], $token)->getStatus());
+        self::$api->approve();
+        $done = $this->call($h, 'POST', '/passkey/register/options', [], $token);
+        $this->assertSame(200, $done->getStatus());
+        $this->assertSame('reg-challenge', $done->getBody()['challenge']);
+        $this->assertNotSame(200, $this->call($h, 'POST', '/passkey/register/options', [], $token)->getStatus());
+    }
+
     public function testOneIpSprayingUsernamesIsCappedPerIp(): void
     {
         $tq = $this->mockClient();

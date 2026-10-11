@@ -28,11 +28,17 @@ class WebAuthn
      * `$discoverable = true` registers a resident credential (forced UV) — the
      * shape a passwordless-primary login authenticates against.
      */
-    public function registerOptions(string $externalUsername, bool $discoverable = false): array
+    public function registerOptions(string $externalUsername, bool $discoverable = false, ?string $approvalRequestId = null): array
     {
         $body = ['externalUsername' => $externalUsername];
         if ($discoverable) {
             $body['discoverable'] = true;
+        }
+        // Required when the user has a linked phone (403 enrollment_approval_required
+        // otherwise): a PASSKEY_ENROLL request the user approved on the phone, at most
+        // 10 minutes old, used once. The relay's /passkey/register/options runs it for you.
+        if ($approvalRequestId !== null && $approvalRequestId !== '') {
+            $body['approvalRequestId'] = $approvalRequestId;
         }
         return $this->http->post('/webauthn/register/options', $body);
     }

@@ -37,6 +37,20 @@ class ContractTest extends TestCase
         return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
+    public function testWaitingStepCarriesTheTelemetryToken(): void
+    {
+        // R1-04: the browser can only post behavioural signals with this token.
+        self::$api->link('tel@acme.com');
+        $tq = $this->client();
+        $this->assertArrayNotHasKey('telemetryToken', $tq->start('LOGIN', 'tel@acme.com'));
+        self::$api->opts(['telemetry' => true]);
+        try {
+            $this->assertSame('tt_test', $tq->start('LOGIN', 'tel@acme.com')['telemetryToken']);
+        } finally {
+            self::$api->opts(['telemetry' => false]);
+        }
+    }
+
     public function testStartCheckCompleteFullFlow(): void
     {
         self::$api->link('jane@acme.com');
