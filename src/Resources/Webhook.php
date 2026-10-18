@@ -12,6 +12,31 @@ class Webhook
     /** Replay window (seconds): reject a callback whose signed `timestamp` is older/newer than this. */
     private const DEFAULT_TOLERANCE_SECONDS = 300;
 
+    // `reason` values of a REJECTED login webhook. Treat a value you do not know as a rejection.
+    public const REASON_USER_REJECTED = 'user_rejected';
+    /** The user said "this wasn't me": 2FA is frozen. */
+    public const REASON_USER_REPORTED_FRAUD = 'user_reported_fraud';
+    /** The user said someone on the phone told them to approve: 2FA is frozen; treat it as a takeover in progress. */
+    public const REASON_USER_REPORTED_COACHED = 'user_reported_coached';
+    public const REASON_RISK_REVERSED = 'risk_reversed';
+    public const REASON_RISK_STEP_UP = 'risk_step_up';
+    public const REASON_APPROVAL_SIGNATURE_INVALID = 'approval_signature_invalid';
+    public const REASON_DEVICE_INTEGRITY_FAILED = 'device_integrity_failed';
+    /** Vishing Shield: approved during a call (or with the screen shared / remote-controlled), critical, no passkey. */
+    public const REASON_VISHING_SUSPECTED = 'vishing_suspected';
+    /** Mirror Alarm: the sign-in page was not on your site (a real-time phishing proxy). */
+    public const REASON_PHISHING_ORIGIN = 'phishing_origin';
+
+    // `event` values of event webhooks. Ignore types you do not know.
+    public const EVENT_DEVICE_LINKED = 'DEVICE_LINKED';
+    public const EVENT_DEVICE_UNLINKED = 'DEVICE_UNLINKED';
+    public const EVENT_PASSKEY_REGISTERED = 'PASSKEY_REGISTERED';
+    public const EVENT_PASSKEY_DELETED = 'PASSKEY_DELETED';
+    /** After the call, the user confirmed a provisional approval was theirs: critical actions are allowed again. */
+    public const EVENT_APPROVAL_RECONFIRMED = 'APPROVAL_RECONFIRMED';
+    /** The user took an approval back (`reason` COACHED or UNDO): end the session built on it. */
+    public const EVENT_APPROVAL_REVOKED = 'APPROVAL_REVOKED';
+
     private Config $config;
 
     public function __construct(Config $config)

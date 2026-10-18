@@ -225,4 +225,74 @@ class ContractTest extends TestCase
         $this->assertSame(403, $blocked['status']);
         $this->assertSame(['state' => 'blocked', 'reason' => 'geo_policy'], $blocked['body']['touchque']);
     }
+
+    // ── Vishing Shield ──────────────────────────────────────────────────
+
+    private function cleanOpts(array $extra = []): void
+    {
+        self::$api->opts($extra + ['blocked' => false, 'frozen' => false, 'rateLimited' => false, 'numberMatch' => false, 'passkeyOnly' => false, 'canary' => false]);
+    }
+
+    public function testFirstWaitingStepCarriesTheMirrorCanaryPollsDoNot(): void
+    {
+        $this->cleanOpts(['canary' => true]);
+        self::$api->link('canary@acme.com');
+        $tq = $this->client();
+        try {
+            $first = Guard::run($tq, 'canary@acme.com', 'LOGIN');
+            $this->assertStringEndsWith('.gif', $first['body']['touchque']['canary']['url']);
+            $poll = Guard::run($tq, 'canary@acme.com', 'LOGIN', null, null, null, null, $first['body']['token']);
+            $this->assertSame('waiting', $poll['body']['touchque']['state']);
+            $this->assertArrayNotHasKey('canary', $poll['body']['touchque']);
+        } finally {
+            $this->cleanOpts();
+        }
+    }
+
+    public function testPushTappedDuringACallBecomesPasskeyRequiredAlsoFromTheOfflineQr(): void
+    {
+        $this->cleanOpts();
+        self::$api->link('oncall@acme.com');
+        $tq = $this->client();
+        $first = Guard::run($tq, 'oncall@acme.com', 'LOGIN');
+        $rid = $first['body']['touchque']['requestId'];
+        $off = Guard::run($tq, 'oncall@acme.com', 'LOGIN', null, null, null, null, $first['body']['token'], true);
+        $this->assertSame('offline', $off['body']['touchque']['state']);
+        self::$api->escalate($rid);
+        $poll = Guard::run($tq, 'oncall@acme.com', 'LOGIN', null, null, null, null, $off['body']['token']);
+        $this->assertSame(202, $poll['status']);
+        $this->assertSame('passkey_required', $poll['body']['touchque']['state']);
+        $this->assertSame($rid, $poll['body']['touchque']['requestId']);
+        $typed = Guard::run($tq, 'oncall@acme.com', 'LOGIN', null, null, null, null, $off['body']['token'], false, 'ABCD123');
+        $this->assertSame('passkey_required', $typed['body']['touchque']['state']);
+    }
+
+    public function testProvisionalApprovalAndTheCriticalActionLock(): void
+    {
+        $this->cleanOpts();
+        self::$api->link('prov@acme.com');
+        $tq = $this->client();
+        $step = $tq->start('LOGIN', 'prov@acme.com');
+        self::$api->approve($step['requestId'], 'DEVICE', true);
+        $approval = $tq->complete($step['requestId'], 'prov@acme.com', 'LOGIN');
+        $this->assertTrue($approval['provisional']);
+        $this->assertFalse($approval['revoked']);
+        $this->assertSame(['state' => 'blocked', 'reason' => 'provisional'], $tq->start('SEND_MONEY', 'prov@acme.com'));
+        self::$api->reconfirm($step['requestId']);
+        $this->assertSame('waiting', $tq->start('SEND_MONEY', 'prov@acme.com')['state']);
+    }
+
+    public function testAnApprovalTakenBackIsNeverUsed(): void
+    {
+        $this->cleanOpts();
+        self::$api->link('revoke@acme.com');
+        $tq = $this->client();
+        $first = Guard::run($tq, 'revoke@acme.com', 'LOGIN');
+        $rid = $first['body']['touchque']['requestId'];
+        self::$api->approve($rid);
+        self::$api->revoke($rid, 'COACHED');
+        $done = Guard::run($tq, 'revoke@acme.com', 'LOGIN', null, null, null, null, $first['body']['token']);
+        $this->assertSame(408, $done['status']);
+        $this->assertSame(['state' => 'expired', 'reason' => 'revoked'], $done['body']['touchque']);
+    }
 }

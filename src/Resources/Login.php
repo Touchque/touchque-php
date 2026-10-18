@@ -82,7 +82,8 @@ class Login
      * Request a login and wait (poll) until the user approves or rejects it.
      *
      * @throws TouchQuePasskeyRequiredError when a phishing-resistant policy
-     *   requires the request to be approved with a passkey (no push sent).
+     *   requires the request to be approved with a passkey (no push sent, `reason` policy), or the user
+     *   tapped Approve during a call and the request now waits for a passkey (`reason` step_up).
      * @throws TouchQueRejectedException when the user rejects it.
      * @throws TouchQueTimeoutException on timeout or expiry.
      */
@@ -118,6 +119,8 @@ class Login
                     'challengeCode' => $requestResult['challengeCode'] ?? null,
                     'assurance' => $statusResult['assurance'] ?? null,
                     'confirmedVia' => $statusResult['confirmedVia'] ?? null,
+                    // Vishing Shield: approved during a call; critical actions wait for the phone to re-confirm.
+                    'provisional' => !empty($statusResult['provisional']),
                 ];
             }
 
@@ -127,6 +130,11 @@ class Login
 
             if ($status === 'EXPIRED') {
                 throw new TouchQueTimeoutException("Request $requestId expired before it was approved.");
+            }
+
+            // Vishing Shield: tapped during a call, the request now waits for a passkey in the browser.
+            if ($status === 'PENDING' && !empty($statusResult['requiresPasskey'])) {
+                throw new TouchQuePasskeyRequiredError($requestId, 'step_up');
             }
 
             $elapsed = (microtime(true) * 1000) - $startTime;

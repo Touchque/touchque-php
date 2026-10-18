@@ -152,6 +152,10 @@ class Guard
                 if (($res['reason'] ?? null) === 'request_rejected') {
                     return $issue(['state' => 'rejected', 'requestId' => $bound['rid'] ?? null, 'reason' => 'request_rejected']);
                 }
+                // The push now waits for a passkey (Vishing Shield): no code may finish it.
+                if (($res['reason'] ?? null) === 'passkey_required' && !empty($bound['rid'])) {
+                    return $issue(['state' => 'passkey_required', 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null], ['n' => $bound['n'] ?? null]);
+                }
                 return $issue(['state' => ($res['reason'] ?? null) === 'expired' ? 'expired' : 'blocked', 'reason' => $res['reason'] ?? 'offline_failed']);
             }
 
@@ -172,6 +176,10 @@ class Guard
                 } catch (TouchQueAPIException $err) {
                     if ($err->getStatus() === 409 && ($err->getErrorCode() ?? ($err->getData()['error'] ?? null)) === 'request_rejected') {
                         return $issue(['state' => 'rejected', 'requestId' => $bound['rid'] ?? null, 'reason' => 'request_rejected']);
+                    }
+                    // The push it would follow now waits for a passkey (Vishing Shield): no QR, run the passkey.
+                    if (!empty($bound['rid']) && ($err->getErrorCode() ?? ($err->getData()['error'] ?? null)) === 'passkey_required') {
+                        return $issue(['state' => 'passkey_required', 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null], ['n' => $bound['n'] ?? null]);
                     }
                     if ($err->getStatus() < 500) {
                         return $issue(['state' => 'blocked', 'reason' => $err->getErrorCode() ?? ($err->getData()['error'] ?? 'offline_unavailable')]);
@@ -194,7 +202,12 @@ class Guard
                         throw $err;
                     }
                 }
-                if (($bound['st'] ?? null) === 'offline' && in_array($now['state'], ['waiting', 'expired', 'passkey_required'], true)) {
+                // The push behind the QR was moved to a passkey after a tap during a call (Vishing Shield):
+                // the QR's code would be refused now, so switch to the passkey.
+                if (($bound['st'] ?? null) === 'offline' && $now['state'] === 'passkey_required') {
+                    return $issue(['state' => 'passkey_required', 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null], ['n' => $bound['n'] ?? null]);
+                }
+                if (($bound['st'] ?? null) === 'offline' && in_array($now['state'], ['waiting', 'expired'], true)) {
                     // Still (or no longer) pending: nothing changed for the user — keep showing the QR they have.
                     return $issue(['state' => 'offline', 'offline' => ['challengeId' => (string)($bound['oc'] ?? '')]], ['oc' => $bound['oc'] ?? null, 'rid' => $bound['rid'], 'n' => $bound['n'] ?? null]);
                 }

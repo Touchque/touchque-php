@@ -54,9 +54,25 @@ class FakeApi
         $this->call('/__test/opts', $opts);
     }
 
-    public function approve(?string $id = null, string $via = 'DEVICE'): void
+    public function approve(?string $id = null, string $via = 'DEVICE', bool $provisional = false): void
     {
-        $this->call('/__test/approve', ['id' => $id, 'via' => $via]);
+        $this->call('/__test/approve', ['id' => $id, 'via' => $via, 'provisional' => $provisional]);
+    }
+
+    /** Vishing Shield: the phone tap moved the request to a passkey (still PENDING). */
+    public function escalate(?string $id = null): void
+    {
+        $this->call('/__test/escalate', ['id' => $id]);
+    }
+
+    public function revoke(?string $id = null, string $reason = 'COACHED'): void
+    {
+        $this->call('/__test/revoke', ['id' => $id, 'reason' => $reason]);
+    }
+
+    public function reconfirm(?string $id = null): void
+    {
+        $this->call('/__test/reconfirm', ['id' => $id]);
     }
 
     public function reject(?string $id = null): void

@@ -79,9 +79,14 @@ class Steps
         $norm = self::normalizeDetails($details);
         try {
             $res = $client->login->request($user, $action, $referenceId, $ip, $userAgent, false, false, $norm ?: null);
+            $canary = isset($res['canary']['url']) && is_string($res['canary']['url']) ? ['url' => $res['canary']['url']] : null;
             if (!empty($res['requiresPasskey'])) {
-                return ['state' => 'passkey_required', 'requestId' => $res['requestId'] ?? null,
+                $step = ['state' => 'passkey_required', 'requestId' => $res['requestId'] ?? null,
                     'expiresAt' => $res['expiresAt'] ?? null, 'details' => $norm ?: null];
+                if ($canary) {
+                    $step['canary'] = $canary;
+                }
+                return $step;
             }
             $step = [
                 'state' => 'waiting', 'requestId' => $res['requestId'] ?? null, 'number' => $res['challengeCode'] ?? null,
@@ -91,6 +96,11 @@ class Steps
                 // Only when the workspace collects behavioural signals: lets the browser post
                 // them for this one request (@touchque/web does it when given `telemetry`).
                 $step['telemetryToken'] = $res['telemetryToken'];
+            }
+            if ($canary) {
+                // Mirror Alarm: the page showing this step loads the canary (@touchque/web does it), so a
+                // phishing proxy in front of your site gets the approval refused. Only on this first step.
+                $step['canary'] = $canary;
             }
             return $step;
         } catch (TouchQueAPIException $err) {
@@ -189,7 +199,7 @@ class Steps
         if (!$sameUser || ($res['type'] ?? null) !== $action || !$sameDetails || !$sameRef) {
             throw new TouchQueException('TouchQue: this approval is for a different user, action or transaction.');
         }
-        return [
+        $approval = [
             'requestId' => $requestId,
             'user' => $res['externalUsername'] ?? null,
             'action' => $res['type'] ?? null,
@@ -197,6 +207,15 @@ class Steps
             'confirmedVia' => $res['confirmedVia'] ?? null,
             'approvalProof' => $res['approvalProof'] ?? null,
         ];
+        if (array_key_exists('provisional', $res)) {
+            // Vishing Shield: approved during a call. Let the user in, but treat the session as limited:
+            // critical actions are refused until APPROVAL_RECONFIRMED, and APPROVAL_REVOKED means end it.
+            $approval += [
+                'provisional' => !empty($res['provisional']), 'revoked' => !empty($res['revoked']),
+                'revokeReason' => $res['revokeReason'] ?? null, 'reconfirmedAt' => $res['reconfirmedAt'] ?? null,
+            ];
+        }
+        return $approval;
     }
 
     // ── Guard token ──────────────────────────────────────────────────────

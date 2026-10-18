@@ -7,6 +7,8 @@ use TouchQue\Http\HttpClient;
 use TouchQue\Resources\Login;
 use TouchQue\Exceptions\TouchQueRejectedException;
 use TouchQue\Exceptions\TouchQueTimeoutException;
+use TouchQue\Exceptions\TouchQuePasskeyRequiredError;
+use TouchQue\Resources\Webhook;
 
 class LoginTest extends TestCase
 {
@@ -128,5 +130,29 @@ class LoginTest extends TestCase
         $result = (new Login($http))->approveWithRecoveryCode('req_1', 'ABCD-1234');
 
         $this->assertTrue($result['success']);
+    }
+
+    public function testVerifyThrowsPasskeyRequiredWhenTheRequestMovesToAPasskeyMidFlight(): void
+    {
+        // Vishing Shield: the user tapped Approve during a call; the request is still open for a passkey.
+        $http = $this->createMock(HttpClient::class);
+        $http->method('post')->willReturn(['requestId' => 'req_1']);
+        $http->method('get')->willReturnOnConsecutiveCalls(['status' => 'PENDING'], ['status' => 'PENDING', 'requiresPasskey' => true]);
+        try {
+            (new Login($http))->verify('a@b.com');
+            $this->fail('expected TouchQuePasskeyRequiredError');
+        } catch (TouchQuePasskeyRequiredError $e) {
+            $this->assertSame('req_1', $e->requestId);
+            $this->assertSame('step_up', $e->reason);
+        }
+    }
+
+    public function testWebhookReasonAndEventConstants(): void
+    {
+        $this->assertSame('vishing_suspected', Webhook::REASON_VISHING_SUSPECTED);
+        $this->assertSame('phishing_origin', Webhook::REASON_PHISHING_ORIGIN);
+        $this->assertSame('user_reported_coached', Webhook::REASON_USER_REPORTED_COACHED);
+        $this->assertSame('APPROVAL_REVOKED', Webhook::EVENT_APPROVAL_REVOKED);
+        $this->assertSame('APPROVAL_RECONFIRMED', Webhook::EVENT_APPROVAL_RECONFIRMED);
     }
 }
