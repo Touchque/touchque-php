@@ -52,9 +52,18 @@ use TouchQue\TouchQue;
  *                   server-side state; the request body is attacker-controlled.
  *   onAuthenticated fn($req, RelayResponse $response, array $info): void — called right before a
  *                   success response is returned: open your session here. $info is
- *                   ['externalUsername' => string, 'requestId' => ?string, 'via' => 'login'|'passkey'|'offline'|'offline-totp']
+ *                   ['externalUsername' => string, 'requestId' => ?string, 'via' => 'login'|'passkey'|'offline'|'offline-totp'|'silent']
  *                   ('requestId' is absent for 'offline-totp'). Mutate $response (headers, status);
  *                   the handler sets the body.
+ *   silentSignIn    bool|array — silent sign-ins for POST /login (default false). When on, a new sign-in
+ *                   whose browser sent its device-bound key proof (X-TouchQue-Browser, added by
+ *                   `@touchque/web` with `browserKey: true`) first asks TouchQue whether anything about it
+ *                   is new. If nothing is, it succeeds at once with no push (onAuthenticated gets
+ *                   'via' => 'silent', 'requestId' => 'silent'; the answer's assurance.method is 'silent').
+ *                   Otherwise, and on any error, the usual push starts and its approval makes the browser
+ *                   known. Set getLoginUser too: the user must have passed your password step.
+ *                   ['maxAgeSeconds' => int] sets your own limit on how long ago the last phone approval
+ *                   in that browser may be (0 = always ask).
  */
 class RelayHandler
 {
@@ -70,6 +79,8 @@ class RelayHandler
     private ?FixedWindowLimiter $limiter;
     private bool $offlineEnabled;
     private string $actionType;
+    /** @var bool|array */
+    private $silentSignIn;
 
     private static bool $warnedPreAuth = false;
 
@@ -104,6 +115,7 @@ class RelayHandler
                 throw new \InvalidArgumentException("RelayHandler: the \"$name\" option must be callable.");
             }
         }
+        Guard::assertSilentSignInOption($options['silentSignIn'] ?? false, 'RelayHandler');
         $rateLimit = $options['rateLimit'] ?? [];
         if ($rateLimit !== false && !is_array($rateLimit)) {
             throw new \InvalidArgumentException('RelayHandler: "rateLimit" must be an array of options or false.');
@@ -115,6 +127,7 @@ class RelayHandler
         $this->getDetails = $options['getDetails'] ?? null;
         $this->onAuthenticated = $options['onAuthenticated'] ?? null;
         $this->actionType = (string)($options['actionType'] ?? 'LOGIN');
+        $this->silentSignIn = $options['silentSignIn'] ?? false;
         $this->limiter = $rateLimit === false ? null : new FixedWindowLimiter($rateLimit);
         $this->offlineEnabled = $this->getLoginUser !== null || ($options['allowOfflineWithoutFirstFactor'] ?? false) === true;
 
@@ -219,6 +232,7 @@ class RelayHandler
         // (matching number / first-time QR / offline QR) until approved; the page
         // re-sends with X-TouchQue-Token.
         $input = Guard::inputFromHeaders($ctx['header']);
+        $silent = Guard::silentInputFromHeaders($this->silentSignIn, $ctx['header']);
         $details = $this->getDetails !== null ? ($this->getDetails)($ctx['req']) : null;
         // Polling an approval already sent is not a new attempt: it has its own,
         // larger per-IP budget and never uses the user's push budget.
@@ -242,7 +256,9 @@ class RelayHandler
             $input['codeType'],
             // Pre-auth: a typed username proves nothing, so no linking QR unless
             // getLoginUser ties this route to the password step.
-            $this->getLoginUser !== null
+            $this->getLoginUser !== null,
+            $silent['browserProof'],
+            $silent['silentSignIn']
         );
         if (!isset($result['approved'])) {
             $res = new RelayResponse($result['status'], $result['body']);
@@ -256,7 +272,8 @@ class RelayHandler
         try {
             if ($this->onAuthenticated !== null) {
                 $confirmedVia = $approved['confirmedVia'] ?? null;
-                $via = $confirmedVia === 'OFFLINE_TOTP' ? 'offline-totp' : ($confirmedVia === 'OFFLINE_CODE' ? 'offline' : 'login');
+                $via = $confirmedVia === 'OFFLINE_TOTP' ? 'offline-totp'
+                    : ($confirmedVia === 'OFFLINE_CODE' ? 'offline' : ($confirmedVia === 'SILENT' ? 'silent' : 'login'));
                 ($this->onAuthenticated)($ctx['req'], $res, ['externalUsername' => $user, 'requestId' => $approved['requestId'] ?? null, 'via' => $via]);
             }
             return $res->setBody(['status' => 'success', 'requestId' => $approved['requestId'] ?? null, 'assurance' => $approved['assurance'] ?? null]);

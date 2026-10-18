@@ -62,7 +62,13 @@ class Steps
         return hash('sha256', $canonical);
     }
 
-    /** Starts an approval for `$action` — never waits. */
+    /**
+     * Starts an approval for `$action` — never waits.
+     *
+     * `$browserProof` (silent sign-ins): the browser's device-bound key proof
+     * (`X-TouchQue-Browser`), passed through untouched. Once the user approves,
+     * TouchQue knows this browser.
+     */
     public static function start(
         TouchQue $client,
         string $action,
@@ -71,14 +77,15 @@ class Steps
         ?string $referenceId = null,
         ?string $ip = null,
         ?string $userAgent = null,
-        bool $enroll = true
+        bool $enroll = true,
+        ?string $browserProof = null
     ): array {
         if ($user === '') {
             throw new TouchQueConfigException('start() needs the user id');
         }
         $norm = self::normalizeDetails($details);
         try {
-            $res = $client->login->request($user, $action, $referenceId, $ip, $userAgent, false, false, $norm ?: null);
+            $res = $client->login->request($user, $action, $referenceId, $ip, $userAgent, false, false, $norm ?: null, $browserProof);
             $canary = isset($res['canary']['url']) && is_string($res['canary']['url']) ? ['url' => $res['canary']['url']] : null;
             if (!empty($res['requiresPasskey'])) {
                 $step = ['state' => 'passkey_required', 'requestId' => $res['requestId'] ?? null,

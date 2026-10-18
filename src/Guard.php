@@ -20,6 +20,8 @@ use TouchQue\Exceptions\TouchQueNetworkException;
  *   X-TouchQue-Offline: 1    switch to offline approval (phone has no internet)
  *   X-TouchQue-Code          the code from the phone (offline QR code, or with
  *   X-TouchQue-Code-Type: totp   the rolling time-based code)
+ *   X-TouchQue-Browser       the browser's device-bound key proof (silent sign-ins,
+ *                            read only when the adapter's `silentSignIn` option is on)
  */
 class Guard
 {
@@ -27,8 +29,11 @@ class Guard
     public const OFFLINE_HEADER = 'x-touchque-offline';
     public const CODE_HEADER = 'x-touchque-code';
     public const CODE_TYPE_HEADER = 'x-touchque-code-type';
+    public const BROWSER_HEADER = 'x-touchque-browser';
 
     private const TOKEN_TTL_MS = 10 * 60 * 1000;
+    /** A real proof is a few hundred characters; anything far larger is not one. */
+    private const MAX_BROWSER_PROOF = 4096;
 
     private const STATUS = [
         'waiting' => 202, 'enroll' => 202, 'passkey_required' => 202, 'offline' => 202,
@@ -51,10 +56,61 @@ class Guard
     }
 
     /**
+     * The guard input an adapter adds for silent sign-ins: the
+     * `X-TouchQue-Browser` header, read only when the option is on.
+     * Returns `['silentSignIn' => bool|array, 'browserProof' => ?string]`.
+     *
+     * @param bool|array|null $option the adapter's `silentSignIn` option
+     */
+    public static function silentInputFromHeaders($option, callable $get): array
+    {
+        if (!self::silentOn($option)) {
+            return ['silentSignIn' => false, 'browserProof' => null];
+        }
+        $proof = $get(self::BROWSER_HEADER);
+        return ['silentSignIn' => $option, 'browserProof' => is_string($proof) && $proof !== '' ? $proof : null];
+    }
+
+    /**
+     * Checks an adapter's `silentSignIn` option: `false` (default), `true`, or
+     * `['maxAgeSeconds' => int >= 0]`.
+     *
+     * @param mixed $option
+     * @throws \InvalidArgumentException
+     */
+    public static function assertSilentSignInOption($option, string $who): void
+    {
+        if ($option === null || is_bool($option)) {
+            return;
+        }
+        if (is_array($option) && array_diff(array_keys($option), ['maxAgeSeconds']) === []
+            && (!isset($option['maxAgeSeconds']) || (is_int($option['maxAgeSeconds']) && $option['maxAgeSeconds'] >= 0))) {
+            return;
+        }
+        throw new \InvalidArgumentException("$who: \"silentSignIn\" must be true, false or ['maxAgeSeconds' => int >= 0].");
+    }
+
+    /** @param mixed $option */
+    private static function silentOn($option): bool
+    {
+        return $option === true || is_array($option);
+    }
+
+    /**
      * Runs one step of the guard. Returns either
      * `["approved" => [...], "status" => 200]` (run your protected action) or
      * `["status" => <code>, "body" => ["touchque" => step, "token" => ...]]`
      * (send that JSON body with that status code).
+     *
+     * Silent sign-ins: `$browserProof` is the browser's device-bound key proof
+     * (`X-TouchQue-Browser`), passed through untouched and attached to the
+     * push, so its approval makes the browser known. With `$silentSignIn`
+     * (`true`, or `['maxAgeSeconds' => int]` for your own limit on the age of
+     * the last phone approval; default `false`), a new attempt that carries a
+     * proof first asks TouchQue (`$tq->risk->check()`): when it answers exactly
+     * `prompt: false` the guard approves at once with no push (`assurance.method`
+     * `silent`, `confirmedVia` `SILENT`, `requestId` `silent`, `reasons`).
+     * Otherwise, and on any error, the usual push starts.
      */
     /**
      * True when this request only polls an approval that is already on its way:
@@ -97,7 +153,9 @@ class Guard
         bool $offline = false,
         ?string $code = null,
         ?string $codeType = null,
-        bool $enroll = true
+        bool $enroll = true,
+        ?string $browserProof = null,
+        $silentSignIn = false
     ): array {
         if (!$user) {
             return ['status' => 401, 'body' => [
@@ -218,7 +276,14 @@ class Guard
             }
 
             // Anything else (no/foreign token, enrollment finished, new attempt): start.
-            return $issue(Steps::start($client, $action, $user, $norm ?: null, $referenceId, $ip, $userAgent, $enroll));
+            $proof = $browserProof !== null && $browserProof !== '' && strlen($browserProof) <= self::MAX_BROWSER_PROOF ? $browserProof : null;
+            if ($proof !== null && self::silentOn($silentSignIn)) {
+                $silent = self::silentApproval($client, $user, $action, $proof, $ip, $userAgent, $silentSignIn);
+                if ($silent !== null) {
+                    return ['status' => 200, 'approved' => $silent];
+                }
+            }
+            return $issue(Steps::start($client, $action, $user, $norm ?: null, $referenceId, $ip, $userAgent, $enroll, $proof));
         } catch (TouchQueConfigException $err) {
             error_log('[TouchQue] ' . $err->getMessage());
             return ['status' => 500, 'body' => [
@@ -231,6 +296,38 @@ class Guard
                 'touchque' => ['state' => 'blocked', 'reason' => 'unavailable'],
                 'error' => ['code' => 'unavailable', 'message' => 'Two-factor approval is temporarily unavailable.'],
             ]];
+        }
+    }
+
+    /**
+     * Asks TouchQue whether this known browser may sign in without the phone.
+     * Fails closed: only an answer of exactly `prompt: false` approves; any
+     * error (network, 4xx, 5xx, a server without silent sign-ins, a bad
+     * option) means "ask as usual".
+     *
+     * @param bool|array $silentSignIn
+     */
+    private static function silentApproval(TouchQue $client, string $user, string $action, string $proof, ?string $ip, ?string $userAgent, $silentSignIn): ?array
+    {
+        try {
+            $options = ['externalUsername' => $user, 'type' => $action, 'clientIp' => $ip, 'userAgent' => $userAgent, 'browserProof' => $proof];
+            if (is_array($silentSignIn) && isset($silentSignIn['maxAgeSeconds'])) {
+                $options['maxAgeSeconds'] = $silentSignIn['maxAgeSeconds'];
+            }
+            $res = $client->risk->check($options);
+            if (($res['prompt'] ?? true) !== false) {
+                return null;
+            }
+            return [
+                'requestId' => 'silent', 'user' => $user, 'action' => $action,
+                'assurance' => ['phishingResistant' => false, 'method' => 'silent'],
+                'confirmedVia' => 'SILENT', 'approvalProof' => null,
+                // Nothing was sent to the phone; why TouchQue let this known browser in.
+                'reasons' => is_array($res['reasons'] ?? null) ? $res['reasons'] : [],
+            ];
+        } catch (\Throwable $err) {
+            error_log('[TouchQue] silent sign-in check failed, asking the phone: ' . $err->getMessage());
+            return null;
         }
     }
 }

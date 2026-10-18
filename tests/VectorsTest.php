@@ -5,6 +5,7 @@ namespace TouchQue\Tests;
 use PHPUnit\Framework\TestCase;
 use TouchQue\Config;
 use TouchQue\Http\HttpClient;
+use TouchQue\Resources\Risk;
 use TouchQue\Resources\Webhook;
 
 /**
@@ -57,6 +58,27 @@ class VectorsTest extends TestCase
             // Fixtures carry a fixed past timestamp -> disable the replay check.
             $result = $webhook->verify($v['delivered_body'], null, 0);
             $this->assertSame($v['payload']['requestId'], $result['requestId'], $v['description']);
+        }
+    }
+
+    /**
+     * fixtures/silent-sign-in-vectors.json riskCheck: every SDK reads every
+     * POST /risk/check answer the same way (fail closed: anything but the
+     * boolean `prompt: false` asks).
+     */
+    public function testSilentSignInRiskCheckVectors(): void
+    {
+        $fx = self::fixture('silent-sign-in-vectors.json');
+        $this->assertNotEmpty($fx['riskCheck']['cases']);
+
+        foreach ($fx['riskCheck']['cases'] as $c) {
+            $http = $this->createMock(HttpClient::class);
+            $http->method('post')->with('/risk/check')->willReturn($c['response']);
+            foreach (['parseCheck' => Risk::parseCheck($c['response']), 'check' => (new Risk($http))->check(['externalUsername' => 'jane@acme.com'])] as $via => $res) {
+                $this->assertSame($c['expected']['prompt'], $res['prompt'], "{$c['name']} ($via)");
+                $this->assertSame($c['expected']['reasonCodes'], array_column($res['reasons'], 'code'), "{$c['name']} ($via)");
+                $this->assertSame($c['expected']['assurance'], $res['assurance'], "{$c['name']} ($via)");
+            }
         }
     }
 }

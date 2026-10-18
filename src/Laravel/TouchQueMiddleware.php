@@ -34,20 +34,50 @@ use TouchQue\TouchQue;
  * tried as `->email`, `->getAuthIdentifier()`, `->username`). For the login
  * route (no signed-in user yet), extend this class and override
  * `resolveUser()` to return whoever just passed your password check.
+ *
+ * Silent sign-ins (default off): with `silentSignIn` on, a new attempt whose
+ * browser sent its device-bound key proof (`X-TouchQue-Browser`, added by
+ * `@touchque/web` with `browserKey: true`) first asks TouchQue whether
+ * anything about it is new. If nothing is, the route runs at once with no
+ * push (`touchque` approval with `assurance.method` `silent` and `reasons`).
+ * Otherwise, and on any error, the usual push starts and its approval makes
+ * the browser known. Turn it on in a subclass
+ * (`protected $silentSignIn = true;`) or when binding the middleware:
+ *
+ *     $this->app->bind(TouchQueMiddleware::class, fn ($app) => new TouchQueMiddleware(
+ *         $app->make(TouchQue::class), ['silentSignIn' => ['maxAgeSeconds' => 8 * 3600]]));
  */
 class TouchQueMiddleware
 {
     private TouchQue $touchQue;
 
-    public function __construct(TouchQue $touchQue)
+    /**
+     * Silent sign-ins: `false` (default), `true`, or `['maxAgeSeconds' => int]`
+     * for your own limit on how long ago the last phone approval in that
+     * browser may be (0 = always ask).
+     *
+     * @var bool|array
+     */
+    protected $silentSignIn = false;
+
+    /** @param array $options ['silentSignIn' => bool|array] */
+    public function __construct(TouchQue $touchQue, array $options = [])
     {
         $this->touchQue = $touchQue;
+        if (array_key_exists('silentSignIn', $options)) {
+            $this->silentSignIn = $options['silentSignIn'];
+        }
+        Guard::assertSilentSignInOption($this->silentSignIn, 'TouchQueMiddleware');
     }
 
     public function handle(Request $request, Closure $next, string $action, ?string $detailsMethod = null)
     {
         $user = $this->resolveUser($request);
         $details = $detailsMethod && method_exists($request, $detailsMethod) ? $request->{$detailsMethod}() : null;
+
+        $header = fn (string $name) => $request->header($name);
+        $input = Guard::inputFromHeaders($header);
+        $silent = Guard::silentInputFromHeaders($this->silentSignIn, $header);
 
         $result = Guard::run(
             $this->touchQue,
@@ -57,7 +87,13 @@ class TouchQueMiddleware
             null,
             $request->ip(),
             $request->userAgent(),
-            ...array_values(Guard::inputFromHeaders(fn (string $name) => $request->header($name)))
+            $input['token'],
+            $input['offline'],
+            $input['code'],
+            $input['codeType'],
+            true,
+            $silent['browserProof'],
+            $silent['silentSignIn']
         );
 
         if (isset($result['approved'])) {

@@ -3,6 +3,29 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.5.0] — 2026-10-18 — Silent sign-ins
+
+### Added
+- **Silent sign-ins.** Stop asking the phone again and again when nothing about a sign-in is new. TouchQue's
+  risk engine decides; the push is skipped only when it says so.
+  - `$tq->risk->check(['externalUsername' => ..., 'type' => ..., 'clientIp' => ..., 'userAgent' => ..., 'browserProof' => ...,
+    'maxAgeSeconds' => ...])` returns `['prompt', 'reasons', 'assurance', 'silentMode']` (new `TouchQue\Resources\Risk`,
+    options are camelCase; an unknown key throws `TouchQueConfigException`). Sends nothing to the phone. Read
+    fail-closed: `prompt` is `false` only when the API answered the boolean `false`; malformed `reasons` become `[]`,
+    a missing `assurance` is `normal` (`Risk::parseCheck()`).
+  - `$tq->risk->browsers(['externalUsername' => ...])` and `$tq->risk->forgetBrowsers(['externalUsername' => ...,
+    'thumbprint' => ...])`: the browsers TouchQue knows for a user, and forgetting one or all of them.
+  - `$browserProof` as the last argument of `$tq->login->request()`, `$tq->login->verify()`, `$tq->start()` and
+    `Steps::start()`: the browser's device-bound key proof (`X-TouchQue-Browser`, made by `@touchque/web` 1.4.0),
+    passed through untouched; once the request is approved, TouchQue knows that browser.
+  - `silentSignIn` option (default off) on `TouchQueMiddleware` (constructor option or `protected $silentSignIn`),
+    `RelayHandler` / `TouchQueRelay` (POST /login) and `Guard::run()` (new last arguments `$browserProof`,
+    `$silentSignIn`): a new attempt carrying the `X-TouchQue-Browser` header is checked first; `prompt: false`
+    approves it at once with no push (`assurance.method` `silent`, `confirmedVia` `SILENT`, `requestId` `silent`,
+    `reasons`; `onAuthenticated` gets `'via' => 'silent'`). Otherwise, and on any error in the check, the usual push
+    starts with the proof attached. `['maxAgeSeconds' => int]` sets your own limit on the age of the last phone approval.
+  - `Guard::BROWSER_HEADER` (`x-touchque-browser`), `Guard::silentInputFromHeaders()`.
+
 ## [3.4.0] — 2026-10-18
 
 ### Added

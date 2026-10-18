@@ -7,6 +7,7 @@ use TouchQue\Resources\Actions;
 use TouchQue\Resources\Auth;
 use TouchQue\Resources\Login;
 use TouchQue\Resources\Offline;
+use TouchQue\Resources\Risk;
 use TouchQue\Resources\WebAuthn;
 use TouchQue\Resources\Webhook;
 
@@ -28,6 +29,8 @@ class TouchQue
     public Webhook $webhook;
     public Offline $offline;
     public Actions $actions;
+    /** Silent sign-ins: should this sign-in ask the phone, and which browsers TouchQue knows. */
+    public Risk $risk;
 
     private Config $config;
 
@@ -42,6 +45,7 @@ class TouchQue
         $this->webhook = new Webhook($this->config);
         $this->offline = new Offline($httpClient);
         $this->actions = new Actions($httpClient);
+        $this->risk = new Risk($httpClient);
     }
 
     /** @internal used by Guard/Steps to sign/verify the browser-facing token. */
@@ -54,10 +58,12 @@ class TouchQue
      * Starts an approval and returns immediately — show the step in your UI.
      * `waiting` + `number`: show the number, the user picks it on the phone.
      * `enroll`: show `enroll['qrCodeDataUrl']` so the user links the TouchQue app first.
+     * `$browserProof` (silent sign-ins): the `X-TouchQue-Browser` header, passed through
+     * untouched; once the user approves, TouchQue knows this browser.
      */
-    public function start(string $action, string $user, ?array $details = null, ?string $referenceId = null, ?string $ip = null, ?string $userAgent = null): array
+    public function start(string $action, string $user, ?array $details = null, ?string $referenceId = null, ?string $ip = null, ?string $userAgent = null, ?string $browserProof = null): array
     {
-        return Steps::start($this, $action, $user, $details, $referenceId, $ip, $userAgent);
+        return Steps::start($this, $action, $user, $details, $referenceId, $ip, $userAgent, true, $browserProof);
     }
 
     /** Where a started approval is now: waiting, approved, rejected, expired… */

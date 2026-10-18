@@ -24,6 +24,8 @@ use TouchQue\TouchQue;
  *             $r->session()->regenerate();
  *             $r->session()->put('touchque_user', $info['externalUsername']);
  *         },
+ *         // Silent sign-ins: a known browser (X-TouchQue-Browser) with nothing new skips the push.
+ *         'silentSignIn' => true,
  *     ]));
  *
  * and register the routes, e.g. in routes/web.php (session middleware needed

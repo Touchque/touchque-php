@@ -82,10 +82,28 @@ class FakeApi
 
     public function calls(): array
     {
-        $ch = curl_init($this->baseUrl . '/__test/calls');
+        return $this->getJson('/__test/calls') ?? [];
+    }
+
+    /** The body of the last POST /risk/check (silent sign-ins), or null. */
+    public function lastCheck(): ?array
+    {
+        return $this->getJson('/__test/last-check');
+    }
+
+    /** Forgets every request, linked user, known browser and option. */
+    public function reset(): void
+    {
+        $this->call('/__test/reset');
+    }
+
+    private function getJson(string $path): ?array
+    {
+        $ch = curl_init($this->baseUrl . $path);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         $res = curl_exec($ch);
-        return json_decode((string)$res, true) ?? [];
+        $data = json_decode((string)$res, true);
+        return is_array($data) ? $data : null;
     }
 
     public function close(): void

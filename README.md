@@ -191,6 +191,75 @@ sign-in and sends a beacon to it, so a real-time phishing proxy in front of your
 approval is refused (`reason: phishing_origin`) and the phone warns the user. Allow the canary host in your
 Content-Security-Policy (`img-src` and `connect-src`).
 
+## Silent sign-ins (stop asking when nothing is new)
+
+A user who approved on their phone in this browser a little while ago, from the same phone, network and country,
+with no risk signal since, does not need another push. TouchQue's risk engine decides; your server only skips the
+push when it says so.
+
+1. In the browser, `@touchque/web` 1.4.0 with `createTouchQueWeb({ browserKey: true })` keeps a non-extractable
+   key for your site and sends a fresh, signed proof of it in the `X-TouchQue-Browser` header.
+2. On the server, turn on `silentSignIn`:
+
+```php
+// a service provider
+use Illuminate\Http\Request;
+use TouchQue\Laravel\TouchQueMiddleware;
+use TouchQue\Laravel\TouchQueRelay;
+use TouchQue\Relay\RelayResponse;
+
+// The relay's POST /login
+$this->app->singleton(TouchQueRelay::class, fn ($app) => new TouchQueRelay($app->make(\TouchQue\TouchQue::class), [
+    'getLoginUser' => fn (Request $r) => $r->session()->get('password_verified_user'),
+    'onAuthenticated' => function (Request $r, RelayResponse $res, array $info) {
+        // $info['via'] is 'silent' when no push was needed
+        $r->session()->regenerate();
+        $r->session()->put('user', $info['externalUsername']);
+    },
+    'silentSignIn' => true, // or ['maxAgeSeconds' => 8 * 3600] for your own limit
+]));
+
+// The middleware: when binding it, or in your subclass (protected $silentSignIn = true;)
+$this->app->bind(TouchQueMiddleware::class, fn ($app) => new TouchQueMiddleware(
+    $app->make(\TouchQue\TouchQue::class),
+    ['silentSignIn' => true]
+));
+```
+
+With it on, a new attempt that carries the header first calls `$tq->risk->check()`. Only an answer of exactly
+`prompt: false` approves it at once, with nothing sent to the phone: the approval (`$request->attributes->get('touchque')`)
+has `assurance` `['method' => 'silent', 'phishingResistant' => false]`, `confirmedVia` `SILENT`, `requestId` `silent`
+and `reasons` (`known_browser`, `recent_approval`, `same_phone`, `familiar_network`, `no_risk_signal`); the relay
+calls `onAuthenticated` with `'via' => 'silent'`. Anything else, and any error in the check, starts the usual push
+with the proof attached, so its approval makes the browser known. Polling with the token never checks again.
+`Guard::run()` takes the same option (its last two arguments: `$browserProof`, `$silentSignIn`).
+
+TouchQue only lets a sign-in through silently when all of this holds: the browser proved its key and was approved
+on the phone (a confirmed push, not one approved during a call, or a passkey) within your `maxAgeSeconds` and at most
+7 days ago, by the phone that is linked now; the country and the network were seen in the user's earlier approved
+sign-ins; the risk engine allows it with no risk signal; and the action is an everyday one. A critical action always
+asks. In `shadow` mode (`silentMode`) it always asks and the reasons say what would have happened.
+
+Without the adapters (options are arrays with camelCase keys):
+
+```php
+$browserProof = $request->header('X-TouchQue-Browser');
+$risk = $tq->risk->check([
+    'externalUsername' => $user, 'type' => 'LOGIN', 'clientIp' => $request->ip(), 'browserProof' => $browserProof,
+]);
+if ($risk['prompt'] === false) {
+    return openSession($user); // $risk['reasons'] say why
+}
+$step = $tq->start('LOGIN', $user, null, null, $request->ip(), $request->userAgent(), $browserProof); // the approval makes the browser known
+
+$browsers = $tq->risk->browsers(['externalUsername' => $user])['browsers'];   // for an "approved browsers" list
+$tq->risk->forgetBrowsers(['externalUsername' => $user]);                     // all; add 'thumbprint' for one
+```
+
+`$tq->login->request()` takes the proof as its last argument (`$browserProof`) too. Forget a user's browsers after a
+password reset or a "sign out everywhere". `check()` reads the answer fail-closed: `prompt` is `false` only when
+TouchQue answered the boolean `false`.
+
 ## Verifying the device proof (no need to trust TouchQue)
 
 Every approval from a phone with a hardware key carries `approvalProof`: the phone's own

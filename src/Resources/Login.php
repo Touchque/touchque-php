@@ -32,6 +32,14 @@ class Login
      * entries, labels <= 40 and values <= 120 characters; the API rejects
      * (never truncates) anything outside those limits. Build it from
      * server-side state, never from browser input.
+     *
+     * `$browserProof` (silent sign-ins): the browser's device-bound key proof,
+     * exactly as the browser sent it (`X-TouchQue-Browser` header, made by
+     * `@touchque/web` with `browserKey: true`). When the user approves this
+     * request on the phone (or with a passkey), TouchQue remembers the
+     * browser, so a later `$tq->risk->check()` can let the same browser in
+     * without asking. Pass it through untouched; an invalid proof only means
+     * "a browser TouchQue does not know".
      */
     public function request(
         string $externalUsername,
@@ -41,7 +49,8 @@ class Login
         ?string $userAgent = null,
         bool $requireBiometric = false,
         bool $requireNumberMatch = false,
-        ?array $details = null
+        ?array $details = null,
+        ?string $browserProof = null
     ): array {
         $payload = [
             'externalUsername' => $externalUsername,
@@ -65,6 +74,9 @@ class Login
         }
         if ($details !== null && count($details) > 0) {
             $payload['details'] = $details;
+        }
+        if ($browserProof !== null && $browserProof !== '') {
+            $payload['browserProof'] = $browserProof;
         }
 
         return $this->http->post('/login/request', $payload);
@@ -96,9 +108,10 @@ class Login
         ?string $userAgent = null,
         bool $requireBiometric = false,
         bool $requireNumberMatch = false,
-        ?array $details = null
+        ?array $details = null,
+        ?string $browserProof = null
     ): array {
-        $requestResult = $this->request($externalUsername, $type, $referenceId, $clientIp, $userAgent, $requireBiometric, $requireNumberMatch, $details);
+        $requestResult = $this->request($externalUsername, $type, $referenceId, $clientIp, $userAgent, $requireBiometric, $requireNumberMatch, $details, $browserProof);
         $requestId = $requestResult['requestId'];
         if (!empty($requestResult['requiresPasskey'])) {
             throw new TouchQuePasskeyRequiredError($requestId);
