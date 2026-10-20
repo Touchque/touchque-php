@@ -155,7 +155,8 @@ class Guard
         ?string $codeType = null,
         bool $enroll = true,
         ?string $browserProof = null,
-        $silentSignIn = false
+        $silentSignIn = false,
+        ?array $context = null
     ): array {
         if (!$user) {
             return ['status' => 401, 'body' => [
@@ -175,7 +176,7 @@ class Guard
             $claims = array_merge($base, [
                 'st' => $step['state'], 'rid' => $step['requestId'] ?? null, 'n' => $step['number'] ?? null,
                 'oc' => $step['offline']['challengeId'] ?? null, 'exp' => (int)(microtime(true) * 1000) + self::TOKEN_TTL_MS,
-            ], $extra);
+            ], isset($step['caseCode']) ? ['cc' => $step['caseCode']] : [], $extra);
             return ['status' => self::STATUS[$step['state']], 'body' => ['touchque' => $step, 'token' => Steps::signGuardToken($secret, $claims)]];
         };
 
@@ -270,7 +271,10 @@ class Guard
                     return $issue(['state' => 'offline', 'offline' => ['challengeId' => (string)($bound['oc'] ?? '')]], ['oc' => $bound['oc'] ?? null, 'rid' => $bound['rid'], 'n' => $bound['n'] ?? null]);
                 }
                 if (in_array($now['state'], ['waiting', 'passkey_required'], true)) {
-                    return $issue(['state' => $now['state'], 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null], ['n' => $bound['n'] ?? null]);
+                    // "Why?": the case code stays on screen while it waits.
+                    $waiting = ['state' => $now['state'], 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null]
+                        + (isset($bound['cc']) ? ['caseCode' => $bound['cc']] : []);
+                    return $issue($waiting, ['n' => $bound['n'] ?? null]);
                 }
                 return $issue(['state' => $now['state'], 'requestId' => $bound['rid']]);
             }
@@ -278,12 +282,12 @@ class Guard
             // Anything else (no/foreign token, enrollment finished, new attempt): start.
             $proof = $browserProof !== null && $browserProof !== '' && strlen($browserProof) <= self::MAX_BROWSER_PROOF ? $browserProof : null;
             if ($proof !== null && self::silentOn($silentSignIn)) {
-                $silent = self::silentApproval($client, $user, $action, $proof, $ip, $userAgent, $silentSignIn);
+                $silent = self::silentApproval($client, $user, $action, $proof, $ip, $userAgent, $silentSignIn, $context);
                 if ($silent !== null) {
                     return ['status' => 200, 'approved' => $silent];
                 }
             }
-            return $issue(Steps::start($client, $action, $user, $norm ?: null, $referenceId, $ip, $userAgent, $enroll, $proof));
+            return $issue(Steps::start($client, $action, $user, $norm ?: null, $referenceId, $ip, $userAgent, $enroll, $proof, $context));
         } catch (TouchQueConfigException $err) {
             error_log('[TouchQue] ' . $err->getMessage());
             return ['status' => 500, 'body' => [
@@ -307,10 +311,13 @@ class Guard
      *
      * @param bool|array $silentSignIn
      */
-    private static function silentApproval(TouchQue $client, string $user, string $action, string $proof, ?string $ip, ?string $userAgent, $silentSignIn): ?array
+    private static function silentApproval(TouchQue $client, string $user, string $action, string $proof, ?string $ip, ?string $userAgent, $silentSignIn, ?array $context = null): ?array
     {
         try {
             $options = ['externalUsername' => $user, 'type' => $action, 'clientIp' => $ip, 'userAgent' => $userAgent, 'browserProof' => $proof];
+            if ($context) {
+                $options['context'] = $context;
+            }
             if (is_array($silentSignIn) && isset($silentSignIn['maxAgeSeconds'])) {
                 $options['maxAgeSeconds'] = $silentSignIn['maxAgeSeconds'];
             }

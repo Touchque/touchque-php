@@ -96,6 +96,17 @@ class WebAuthnTest extends TestCase
         $this->assertTrue($wa->primaryVerify('att_1', ['id' => 'a'])['requiresStepUp']);
     }
 
+    public function testPrimaryOptionsWithoutUsernameIsForAnyPasskey(): void
+    {
+        $http = $this->http();
+        $http->expects($this->exactly(2))->method('post')
+            ->with('/webauthn/authenticate/primary/options', [])
+            ->willReturn(['attemptId' => 'att_2', 'options' => []]);
+        $wa = new WebAuthn($http);
+        $this->assertSame('att_2', $wa->primaryOptions()['attemptId']);
+        $this->assertSame('att_2', $wa->primaryOptions('')['attemptId']);
+    }
+
     public function testListCredentialsPassesQueryParam(): void
     {
         $http = $this->http();

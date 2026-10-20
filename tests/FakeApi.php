@@ -80,6 +80,18 @@ class FakeApi
         $this->call('/__test/reject', ['id' => $id]);
     }
 
+    /** Never Locked Out: move a recovery to VOUCHING, COOLING or COMPLETED. */
+    public function recovery(string $to, ?string $id = null): void
+    {
+        $this->call('/__test/recovery', ['id' => $id, 'to' => $to]);
+    }
+
+    /** TouchQue Actions: the dashboard's phone approval of a pending version. */
+    public function approveVersion(string $slug, int $number): void
+    {
+        $this->call('/__test/approve-version', ['slug' => $slug, 'number' => $number]);
+    }
+
     public function calls(): array
     {
         return $this->getJson('/__test/calls') ?? [];

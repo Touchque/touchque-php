@@ -74,11 +74,15 @@ class WebAuthn
      * Step 1 of a passwordless-primary login. Requires
      * `TenantPolicy.passwordlessLoginEnabled`. A 404 `no_passkey_registered`
      * means the user has no passkey — fall back to password login.
+     * Without `$externalUsername` the options accept any passkey of your site
+     * (passkey autofill, where nobody has typed an email yet), and
+     * `primaryVerify` names the user the passkey belongs to.
      * Returns `{ attemptId, options }`.
      */
-    public function primaryOptions(string $externalUsername): array
+    public function primaryOptions(?string $externalUsername = null): array
     {
-        return $this->http->post('/webauthn/authenticate/primary/options', ['externalUsername' => $externalUsername]);
+        $body = $externalUsername !== null && $externalUsername !== '' ? ['externalUsername' => $externalUsername] : [];
+        return $this->http->post('/webauthn/authenticate/primary/options', $body);
     }
 
     /**

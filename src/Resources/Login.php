@@ -50,7 +50,8 @@ class Login
         bool $requireBiometric = false,
         bool $requireNumberMatch = false,
         ?array $details = null,
-        ?string $browserProof = null
+        ?string $browserProof = null,
+        ?array $context = null
     ): array {
         $payload = [
             'externalUsername' => $externalUsername,
@@ -78,6 +79,10 @@ class Login
         if ($browserProof !== null && $browserProof !== '') {
             $payload['browserProof'] = $browserProof;
         }
+        // For your TouchQue Actions only (event.context); never shown on the phone.
+        if ($context !== null && count($context) > 0) {
+            $payload['context'] = $context;
+        }
 
         return $this->http->post('/login/request', $payload);
     }
@@ -92,6 +97,18 @@ class Login
 
     /**
      * Request a login and wait (poll) until the user approves or rejects it.
+     *
+     * With number matching (your `$requireNumberMatch`, a workspace policy or the
+     * risk engine can turn it on) the user must pick a number on the phone.
+     * `$onChallenge` is called once, right after the request is created and before
+     * any waiting, with `['requestId', 'challengeCode', 'expiresAt', 'reasons',
+     * 'caseCode']`: show `challengeCode` to the user now; the phone asks for it. An
+     * exception it throws is logged and ignored (verify keeps waiting). It is not
+     * called when only a passkey can approve.
+     *
+     *     $tq->login->verify($user, 'SEND_MONEY', null, 30000, $ip, $ua, false, false, null, null,
+     *         function (array $c) { if (isset($c['challengeCode'])) show("Pick {$c['challengeCode']} on your phone"); });
+     *     // PHP 8: verify($user, 'SEND_MONEY', onChallenge: function (array $c) { ... })
      *
      * @throws TouchQuePasskeyRequiredError when a phishing-resistant policy
      *   requires the request to be approved with a passkey (no push sent, `reason` policy), or the user
@@ -109,12 +126,30 @@ class Login
         bool $requireBiometric = false,
         bool $requireNumberMatch = false,
         ?array $details = null,
-        ?string $browserProof = null
+        ?string $browserProof = null,
+        ?callable $onChallenge = null,
+        ?array $context = null
     ): array {
-        $requestResult = $this->request($externalUsername, $type, $referenceId, $clientIp, $userAgent, $requireBiometric, $requireNumberMatch, $details, $browserProof);
+        $requestResult = $this->request($externalUsername, $type, $referenceId, $clientIp, $userAgent, $requireBiometric, $requireNumberMatch, $details, $browserProof, $context);
         $requestId = $requestResult['requestId'];
         if (!empty($requestResult['requiresPasskey'])) {
             throw new TouchQuePasskeyRequiredError($requestId);
+        }
+
+        // The number to show, before waiting: the phone asks the user for it.
+        if ($onChallenge !== null) {
+            $challenge = ['requestId' => $requestId, 'expiresAt' => $requestResult['expiresAt'] ?? null];
+            foreach (['challengeCode', 'reasons', 'caseCode'] as $key) {
+                if (!empty($requestResult[$key])) {
+                    $challenge[$key] = $requestResult[$key];
+                }
+            }
+            try {
+                $onChallenge($challenge);
+            } catch (\Throwable $e) {
+                // The caller's callback must not stop the wait.
+                error_log('[TouchQue] onChallenge failed: ' . $e->getMessage());
+            }
         }
 
         $startTime = microtime(true) * 1000;

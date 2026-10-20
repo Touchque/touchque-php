@@ -23,7 +23,7 @@ use TouchQue\Exceptions\TouchQueConfigException;
 class Risk
 {
     private const ASSURANCE = ['high', 'normal', 'low'];
-    private const CHECK_OPTIONS = ['externalUsername', 'type', 'clientIp', 'userAgent', 'browserProof', 'maxAgeSeconds'];
+    private const CHECK_OPTIONS = ['externalUsername', 'type', 'clientIp', 'userAgent', 'browserProof', 'maxAgeSeconds', 'context'];
 
     private HttpClient $http;
 
@@ -52,12 +52,17 @@ class Risk
             }
         }
         $assurance = $body['assurance'] ?? null;
-        return [
+        $out = [
             'prompt' => !(array_key_exists('prompt', $body) && $body['prompt'] === false),
             'reasons' => $reasons,
             'assurance' => is_string($assurance) && in_array($assurance, self::ASSURANCE, true) ? $assurance : 'normal',
             'silentMode' => ($body['silentMode'] ?? null) === 'shadow' ? 'shadow' : 'enforce',
         ];
+        // "Why?": the check's case code (K7P-2QX), to show the user.
+        if (isset($body['caseCode']) && is_string($body['caseCode'])) {
+            $out['caseCode'] = $body['caseCode'];
+        }
+        return $out;
     }
 
     /**
@@ -72,6 +77,7 @@ class Risk
      *   - browserProof     (string) the browser's device-bound key proof (`X-TouchQue-Browser`), passed through untouched
      *   - maxAgeSeconds    (int >= 0) your own limit on how long ago the last phone approval in this browser may be;
      *                      0 = always ask. TouchQue never goes beyond its own limit (7 days).
+     *   - context          (array) for your TouchQue Actions only (`event.context`)
      * @return array{prompt: bool, reasons: array<int, array{code: string, text: string}>, assurance: string, silentMode: string}
      *   `reasons` codes: known_browser, recent_approval, same_phone, familiar_network, no_risk_signal (silent);
      *   no_browser_key, new_browser, approval_too_old, critical_action, risk_signal, silent_mode_shadow, … (asked).
@@ -100,6 +106,14 @@ class Risk
                 throw new TouchQueConfigException('risk->check(): "maxAgeSeconds" must be an integer >= 0 (0 = always ask)');
             }
             $body['maxAgeSeconds'] = $options['maxAgeSeconds'];
+        }
+        if (isset($options['context'])) {
+            if (!is_array($options['context'])) {
+                throw new TouchQueConfigException('risk->check(): "context" must be an array');
+            }
+            if ($options['context'] !== []) {
+                $body['context'] = $options['context'];
+            }
         }
         return self::parseCheck($this->http->post('/risk/check', $body));
     }

@@ -3,6 +3,77 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.0.0] — 2026-10-20 — TouchQue Actions
+
+> 3.6.0 (Never Locked Out) and 3.7.0 ("Why?" case codes) below were not published on their own; they ship in 4.0.0.
+
+### Breaking
+- **Action types moved to `$tq->actionTypes`** (`define`, `list`; class `TouchQue\Resources\ActionTypes`).
+  `$tq->actions` is now TouchQue Actions. Replace `$tq->actions->define(...)` with
+  `$tq->actionTypes->define(...)`.
+
+### Added
+- **TouchQue Actions** (`$tq->actions`): your own code at points of the approval pipeline, run by TouchQue in
+  a sandbox. See [ACTIONS.md](../ACTIONS.md).
+  - `deploy($slug, ['trigger', 'code' | 'template', 'name', 'secrets', 'allowedHosts', 'capabilities',
+    'onFailure', 'order', 'enabled', 'activate'])` (idempotent; a version asking for a loosening capability
+    answers `deployed => false` with `approval.required` and waits for an admin's phone approval), `list`,
+    `get`, `version`, `update`, `delete`, `rollback($slug, ?int $version)`. Option keys are camelCase; an
+    unknown key throws `TouchQueConfigException`.
+  - Developer loop: `test([..., 'eventId' | 'event'])` (one run, nothing sent), `dryRun([..., 'replaces',
+    'limit', 'since'])` (replay against recent real decisions), `events`, `logs`, `metrics`.
+  - `triggers()`, `templates()`, `renderTemplate($id, $trigger, $params)`; `secrets->set | list | delete`.
+- `$context` on `login->request()`, `Steps::start()`, `Guard::run()`, `'context'` on `risk->check()`, and a
+  `context` option (or `resolveContext()`) on the Laravel `TouchQueMiddleware`: for your Actions only
+  (`event.context`), never shown on the phone.
+- **`$onChallenge` on `login->verify()`** (11th argument, then `$context`): with number matching the phone asks for
+  a number that `verify()` used to return only after the approval. The callable runs once, right after the request
+  is created and before the wait, with `requestId`, `expiresAt` and, when present, `challengeCode`, `reasons`,
+  `caseCode`. Show `challengeCode` to the user now; the phone asks for it. Not called when only a passkey can
+  approve. Anything it throws is logged with `error_log` and ignored: `verify()` keeps waiting.
+- `HttpClient::put()` / `patch()`; an empty body is sent as `{}`.
+- **Passkey autofill** (WebAuthn conditional mediation): `$tq->webauthn->primaryOptions()` without a
+  username (`null` or `''`) asks for options that accept any passkey of your site, and `primaryVerify` names
+  the user the passkey belongs to. `RelayHandler` / `TouchQueRelay::routes` answer `POST
+  /passkey/authenticate/options` the same way when the body has no `email`, so `@touchque/web`'s
+  `passkeys.autofill()` works with no extra route.
+
+## [3.7.0] — 2026-10-19 — "Why?" case codes
+
+### Added
+- **Case codes.** Every approval decision (`login->request`, `risk->check`) now names a short case code
+  (`K7P-2QX`). Show it to your user ("Tell your support team: K7P-2QX"); your team opens the decision by it in
+  the dashboard (Logs → Look up a case).
+  - The `login->request` answer has `caseCode` and, for a step-up, `reasons` (plain English, never a score).
+  - `risk->check` returns `caseCode`.
+  - `TouchQueAPIException::getCaseCode()` on refusals (blocked, frozen, rate limited, provisional, keys lost).
+  - Steps (`start`, `Guard::run`, the relay and the Laravel middleware) carry `caseCode` and `reasons`; the guard
+    keeps showing the code while it waits.
+
+## [3.6.0] — 2026-10-19 — Never Locked Out
+
+### Added
+- **Never Locked Out.** A user whose phone is lost, dead or replaced moves to a new phone without a help desk:
+  colleagues they named vouch on their own phones, then a cooling-off anyone can veto.
+  - `$tq->recovery->setVouchers($user, $vouchers)` and `$tq->recovery->vouchers($user)` (who can vouch today and why
+    not; new `TouchQue\Resources\Recovery`). Ask for the user's phone before you change the list.
+  - `$tq->recovery->start(['externalUsername' => ..., 'clientIp' => ..., 'displayName' => ..., 'fallbackVouchers' => [...],
+    'required' => ..., 'coolOffMinutes' => ..., 'details' => [...]])` returns the recovery with `bindUri` (show it as a
+    QR for the new phone); `status($id)`, `list(['externalUsername' => ...] | ['open' => true])`, `veto($id, $by, $reason)`,
+    `Recovery::isOpen()`. Options are camelCase; an unknown key throws `TouchQueConfigException`.
+  Only after your first factor (password, IdP). The risk engine's BLOCK refuses; hard signals add a voucher and
+  double the cooling-off. Errors carry `code`: `not_enough_vouchers` (with `required`, `eligible`, `vouchers`),
+  `recovery_in_progress`, `blocked`, `frozen`, `rate_limited`, `device_not_linked`. After a vouch move, critical
+  actions answer 403 `blocked` / `recovery_probation` for 24 h. New webhook events `RECOVERY_STARTED`,
+  `RECOVERY_DEVICE_BOUND`, `RECOVERY_COOLING`, `RECOVERY_COMPLETED`, `RECOVERY_VETOED`, `RECOVERY_EXPIRED`,
+  `RECOVERY_FAILED`; `DEVICE_LINKED` can carry `via: 'recovery'`.
+- `details` / `noticeDetails` on start: what the vouchers' phones and the old phone show, in your words (default
+  English lines otherwise).
+- Approval requests on the phone carry `expiresAt` (a vouch stays open for 10 minutes).
+
+### Changed
+- Phone-to-phone transfers must be signed by a phone with a hardware key (the apps do since this release) and move
+  only the accounts the phone chose.
 ## [3.5.0] — 2026-10-18 — Silent sign-ins
 
 ### Added

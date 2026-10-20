@@ -8,8 +8,7 @@ use TouchQue\Exceptions\TouchQueNetworkException;
 
 class HttpClient
 {
-    private const SDK_VERSION = '3.5.0';
-
+    private const SDK_VERSION = '4.0.0';
     private Config $config;
 
     public function __construct(Config $config)
@@ -19,11 +18,27 @@ class HttpClient
 
     public function post(string $endpoint, array $body): array
     {
-        $bodyStr = json_encode($body);
+        return $this->send('POST', $endpoint, self::encode($body));
+    }
+
+    public function put(string $endpoint, array $body): array
+    {
+        return $this->send('PUT', $endpoint, self::encode($body));
+    }
+
+    public function patch(string $endpoint, array $body): array
+    {
+        return $this->send('PATCH', $endpoint, self::encode($body));
+    }
+
+    /** JSON with `{}` for an empty body (never `[]`). */
+    private static function encode(array $body): string
+    {
+        $bodyStr = json_encode($body === [] ? new \stdClass() : $body);
         if ($bodyStr === false) {
             throw new \InvalidArgumentException('Invalid JSON body provided.');
         }
-        return $this->send('POST', $endpoint, $bodyStr);
+        return $bodyStr;
     }
 
     public function get(string $endpoint, array $params = []): array
@@ -77,6 +92,9 @@ class HttpClient
         ];
         if ($method === 'POST') {
             $opts[CURLOPT_POST] = true;
+            $opts[CURLOPT_POSTFIELDS] = $bodyStr;
+        } elseif ($method === 'PUT' || $method === 'PATCH') {
+            $opts[CURLOPT_CUSTOMREQUEST] = $method;
             $opts[CURLOPT_POSTFIELDS] = $bodyStr;
         } elseif ($method === 'DELETE') {
             $opts[CURLOPT_CUSTOMREQUEST] = 'DELETE';

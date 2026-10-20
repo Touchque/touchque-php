@@ -35,4 +35,15 @@ class TouchQueAPIException extends TouchQueException
     {
         return $this->getData()['retryAfter'] ?? null;
     }
+
+    /**
+     * "Why?" case code of a refusal (`K7P-2QX`): show it to the user ("Tell your
+     * support team: K7P-2QX"); your team opens the decision by it in the
+     * dashboard. Null for other errors.
+     */
+    public function getCaseCode(): ?string
+    {
+        $code = $this->getData()['caseCode'] ?? null;
+        return is_string($code) ? $code : null;
+    }
 }

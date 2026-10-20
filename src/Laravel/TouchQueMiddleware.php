@@ -60,10 +60,22 @@ class TouchQueMiddleware
      */
     protected $silentSignIn = false;
 
-    /** @param array $options ['silentSignIn' => bool|array] */
+    /**
+     * For your TouchQue Actions only (`event.context`): a callable taking the
+     * Request and returning an array (roles, plan, amount…). Never shown on
+     * the phone. Or override `resolveContext()`.
+     *
+     * @var callable|null
+     */
+    protected $context = null;
+
+    /** @param array $options ['silentSignIn' => bool|array, 'context' => callable(Request): array] */
     public function __construct(TouchQue $touchQue, array $options = [])
     {
         $this->touchQue = $touchQue;
+        if (isset($options['context'])) {
+            $this->context = $options['context'];
+        }
         if (array_key_exists('silentSignIn', $options)) {
             $this->silentSignIn = $options['silentSignIn'];
         }
@@ -93,7 +105,8 @@ class TouchQueMiddleware
             $input['codeType'],
             true,
             $silent['browserProof'],
-            $silent['silentSignIn']
+            $silent['silentSignIn'],
+            $this->resolveContext($request)
         );
 
         if (isset($result['approved'])) {
@@ -123,5 +136,11 @@ class TouchQueMiddleware
             return null;
         }
         return $user->email ?? (method_exists($user, 'getAuthIdentifier') ? (string)$user->getAuthIdentifier() : null) ?? $user->username ?? null;
+    }
+
+    /** What your TouchQue Actions get as `event.context` (default: the `context` option, or none). */
+    protected function resolveContext(Request $request): ?array
+    {
+        return $this->context ? ($this->context)($request) : null;
     }
 }

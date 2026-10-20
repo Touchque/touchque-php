@@ -4,10 +4,12 @@ namespace TouchQue;
 
 use TouchQue\Http\HttpClient;
 use TouchQue\Resources\Actions;
+use TouchQue\Resources\ActionTypes;
 use TouchQue\Resources\Auth;
 use TouchQue\Resources\Login;
 use TouchQue\Resources\Offline;
 use TouchQue\Resources\Risk;
+use TouchQue\Resources\Recovery;
 use TouchQue\Resources\WebAuthn;
 use TouchQue\Resources\Webhook;
 
@@ -28,9 +30,14 @@ class TouchQue
     public WebAuthn $webauthn;
     public Webhook $webhook;
     public Offline $offline;
+    /** Action types: what users approve (LOGIN, SEND_MONEY…). Was `$actions` before 4.0. */
+    public ActionTypes $actionTypes;
+    /** TouchQue Actions: your own code in the approval pipeline. */
     public Actions $actions;
     /** Silent sign-ins: should this sign-in ask the phone, and which browsers TouchQue knows. */
     public Risk $risk;
+    /** Never Locked Out: move a user whose phone is gone to a new phone, with colleagues vouching. */
+    public Recovery $recovery;
 
     private Config $config;
 
@@ -44,8 +51,10 @@ class TouchQue
         $this->webauthn = new WebAuthn($httpClient);
         $this->webhook = new Webhook($this->config);
         $this->offline = new Offline($httpClient);
+        $this->actionTypes = new ActionTypes($httpClient);
         $this->actions = new Actions($httpClient);
         $this->risk = new Risk($httpClient);
+        $this->recovery = new Recovery($httpClient);
     }
 
     /** @internal used by Guard/Steps to sign/verify the browser-facing token. */

@@ -91,10 +91,10 @@ class ContractTest extends TestCase
         $tq->start('NOT_DEFINED', 'jane3@acme.com');
     }
 
-    public function testActionsDefineCreatesAndUpdates(): void
+    public function testActionTypesDefineCreatesAndUpdates(): void
     {
         $tq = $this->client();
-        $tq->actions->define('EXPORT', 'Export data', null, true);
+        $tq->actionTypes->define('EXPORT', 'Export data', null, true);
         $calls = self::$api->calls();
         $body = null;
         foreach ($calls as $c) {
@@ -223,7 +223,7 @@ class ContractTest extends TestCase
         self::$api->opts(['rateLimited' => false, 'blocked' => 'geo_policy']);
         $blocked = Guard::run($tq, 'blocked@acme.com', 'LOGIN');
         $this->assertSame(403, $blocked['status']);
-        $this->assertSame(['state' => 'blocked', 'reason' => 'geo_policy'], $blocked['body']['touchque']);
+        $this->assertSame(['state' => 'blocked', 'reason' => 'geo_policy', 'caseCode' => 'REF-USE'], $blocked['body']['touchque']);
     }
 
     // ── Vishing Shield ──────────────────────────────────────────────────
@@ -277,7 +277,7 @@ class ContractTest extends TestCase
         $approval = $tq->complete($step['requestId'], 'prov@acme.com', 'LOGIN');
         $this->assertTrue($approval['provisional']);
         $this->assertFalse($approval['revoked']);
-        $this->assertSame(['state' => 'blocked', 'reason' => 'provisional'], $tq->start('SEND_MONEY', 'prov@acme.com'));
+        $this->assertSame(['state' => 'blocked', 'reason' => 'provisional', 'caseCode' => 'REF-USE'], $tq->start('SEND_MONEY', 'prov@acme.com'));
         self::$api->reconfirm($step['requestId']);
         $this->assertSame('waiting', $tq->start('SEND_MONEY', 'prov@acme.com')['state']);
     }

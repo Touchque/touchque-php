@@ -78,18 +78,20 @@ class Steps
         ?string $ip = null,
         ?string $userAgent = null,
         bool $enroll = true,
-        ?string $browserProof = null
+        ?string $browserProof = null,
+        ?array $context = null
     ): array {
         if ($user === '') {
             throw new TouchQueConfigException('start() needs the user id');
         }
         $norm = self::normalizeDetails($details);
         try {
-            $res = $client->login->request($user, $action, $referenceId, $ip, $userAgent, false, false, $norm ?: null, $browserProof);
+            $res = $client->login->request($user, $action, $referenceId, $ip, $userAgent, false, false, $norm ?: null, $browserProof, $context);
             $canary = isset($res['canary']['url']) && is_string($res['canary']['url']) ? ['url' => $res['canary']['url']] : null;
+            $why = self::why($res);
             if (!empty($res['requiresPasskey'])) {
                 $step = ['state' => 'passkey_required', 'requestId' => $res['requestId'] ?? null,
-                    'expiresAt' => $res['expiresAt'] ?? null, 'details' => $norm ?: null];
+                    'expiresAt' => $res['expiresAt'] ?? null, 'details' => $norm ?: null] + $why;
                 if ($canary) {
                     $step['canary'] = $canary;
                 }
@@ -98,7 +100,7 @@ class Steps
             $step = [
                 'state' => 'waiting', 'requestId' => $res['requestId'] ?? null, 'number' => $res['challengeCode'] ?? null,
                 'expiresAt' => $res['expiresAt'] ?? null, 'details' => $norm ?: null,
-            ];
+            ] + $why;
             if (!empty($res['telemetryToken'])) {
                 // Only when the workspace collects behavioural signals: lets the browser post
                 // them for this one request (@touchque/web does it when given `telemetry`).
@@ -112,6 +114,7 @@ class Steps
             return $step;
         } catch (TouchQueAPIException $err) {
             $code = $err->getErrorCode() ?? ($err->getData()['error'] ?? null);
+            $why = $err->getCaseCode() !== null ? ['caseCode' => $err->getCaseCode()] : [];
             if ($err->getStatus() === 404 && ($code === 'device_not_linked' || stripos($err->getMessage(), 'linked device') !== false)) {
                 if (!$enroll) {
                     return ['state' => 'enroll'];
@@ -119,14 +122,14 @@ class Steps
                 return self::enrollStep($client, $user);
             }
             if ($err->getStatus() === 423) {
-                return ['state' => 'frozen', 'retryAfter' => $err->getRetryAfter()];
+                return ['state' => 'frozen', 'retryAfter' => $err->getRetryAfter()] + $why;
             }
             if ($err->getStatus() === 429) {
-                return ['state' => 'rate_limited', 'retryAfter' => $err->getRetryAfter()];
+                return ['state' => 'rate_limited', 'retryAfter' => $err->getRetryAfter()] + $why;
             }
             if ($err->getStatus() === 400 && ($code === 'unknown_action' || stripos($err->getMessage(), 'invalid action type') !== false)) {
                 throw new TouchQueConfigException(
-                    "Unknown action \"$action\". Create it once with \$client->actions->define('$action') "
+                    "Unknown action \"$action\". Create it once with \$client->actionTypes->define('$action') "
                     . 'or in the Dashboard (Action Types).'
                 );
             }
@@ -135,7 +138,7 @@ class Steps
                     ?? ($code === 'passkey_not_registered' || ($err->getData()['error'] ?? null) === 'phishing_resistant_required' ? 'passkey_not_registered' : null)
                     ?? ($code === 'action_disabled' ? 'action_disabled' : null)
                     ?? $code ?? 'blocked';
-                return ['state' => 'blocked', 'reason' => $reason];
+                return ['state' => 'blocked', 'reason' => $reason] + $why;
             }
             throw $err;
         }
@@ -169,6 +172,29 @@ class Steps
                 'expiresAt' => $reset['expiresAt'] ?? null,
             ]];
         }
+    }
+
+    /**
+     * "Why?": the case code (`K7P-2QX`) and plain reasons of a login request's
+     * answer, for its step. Both are safe for the browser: show the code with the
+     * step ("Tell your support team: K7P-2QX").
+     */
+    private static function why(array $res): array
+    {
+        $out = [];
+        if (isset($res['caseCode']) && is_string($res['caseCode']) && $res['caseCode'] !== '') {
+            $out['caseCode'] = $res['caseCode'];
+        }
+        $reasons = [];
+        foreach (is_array($res['reasons'] ?? null) ? $res['reasons'] : [] as $r) {
+            if (is_array($r) && isset($r['code']) && is_string($r['code'])) {
+                $reasons[] = ['code' => $r['code'], 'text' => isset($r['text']) && is_string($r['text']) ? $r['text'] : ''];
+            }
+        }
+        if ($reasons) {
+            $out['reasons'] = $reasons;
+        }
+        return $out;
     }
 
     private const STATE_MAP = ['PENDING' => 'waiting', 'CONFIRMED' => 'approved', 'REJECTED' => 'rejected', 'EXPIRED' => 'expired'];
