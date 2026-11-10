@@ -71,6 +71,40 @@ class LaravelMiddlewareTest extends TestCase
         $this->assertTrue(json_decode($done->getContent(), true)['done']);
     }
 
+    public function testDetailsFromARequestMacroReachThePhone(): void
+    {
+        self::$api->link('mac@acme.com');
+        $middleware = new class ($this->client()) extends TouchQueMiddleware {
+            protected function resolveUser(Request $request): ?string
+            {
+                return 'mac@acme.com';
+            }
+        };
+        Request::macro('transferDetails', function () {
+            return ['Amount' => '250 EUR'];
+        });
+        try {
+            $res = $middleware->handle(Request::create('/transfer', 'POST'), fn (Request $r) => new JsonResponse([]), 'SEND_MONEY', 'transferDetails');
+        } finally {
+            Request::flushMacros();
+        }
+        $this->assertSame(202, $res->getStatusCode());
+        $this->assertSame([['label' => 'Amount', 'value' => '250 EUR']], json_decode($res->getContent(), true)['touchque']['details']);
+    }
+
+    public function testAnUnknownDetailsNameIsMisconfiguredNotApprovedWithoutDetails(): void
+    {
+        $middleware = new class ($this->client()) extends TouchQueMiddleware {
+            protected function resolveUser(Request $request): ?string
+            {
+                return 'mac@acme.com';
+            }
+        };
+        $res = $middleware->handle(Request::create('/transfer', 'POST'), fn (Request $r) => new JsonResponse(['unreachable' => true]), 'SEND_MONEY', 'noSuchDetails');
+        $this->assertSame(500, $res->getStatusCode());
+        $this->assertSame('misconfigured', json_decode($res->getContent(), true)['touchque']['reason']);
+    }
+
     public function testNoUserIs401(): void
     {
         $tq = $this->client();

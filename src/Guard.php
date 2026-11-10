@@ -289,13 +289,13 @@ class Guard
             }
             return $issue(Steps::start($client, $action, $user, $norm ?: null, $referenceId, $ip, $userAgent, $enroll, $proof, $context));
         } catch (TouchQueConfigException $err) {
-            error_log('[TouchQue] ' . $err->getMessage());
+            $client->log('error', '[TouchQue] ' . $err->getMessage());
             return ['status' => 500, 'body' => [
                 'touchque' => ['state' => 'blocked', 'reason' => 'misconfigured'],
                 'error' => ['code' => 'misconfigured', 'message' => 'Two-factor approval is not configured correctly.'],
             ]];
         } catch (TouchQueNetworkException | TouchQueAPIException $err) {
-            error_log('[TouchQue] approval failed: ' . $err->getMessage());
+            $client->log('error', '[TouchQue] approval failed: ' . Config::describe($err));
             return ['status' => 503, 'body' => [
                 'touchque' => ['state' => 'blocked', 'reason' => 'unavailable'],
                 'error' => ['code' => 'unavailable', 'message' => 'Two-factor approval is temporarily unavailable.'],
@@ -333,7 +333,7 @@ class Guard
                 'reasons' => is_array($res['reasons'] ?? null) ? $res['reasons'] : [],
             ];
         } catch (\Throwable $err) {
-            error_log('[TouchQue] silent sign-in check failed, asking the phone: ' . $err->getMessage());
+            $client->log('warning', '[TouchQue] silent sign-in check failed, asking the phone: ' . Config::describe($err));
             return null;
         }
     }

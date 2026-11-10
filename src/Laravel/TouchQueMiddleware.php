@@ -30,6 +30,14 @@ use TouchQue\TouchQue;
  * `X-TouchQue-Token: <token>`. Once approved the route runs ONCE, with
  * `$request->touchque` set to the approval.
  *
+ * What the phone shows (an amount, a payee): put the name of a Request
+ * macro (or a method of your Request class) after the action; the array it
+ * returns is shown and bound to the approval. A name that is neither
+ * answers 500 `misconfigured`:
+ *
+ *     Request::macro('transferDetails', fn () => ['Amount' => request('amount') . ' EUR']);
+ *     ->middleware('touchque:SEND_MONEY,transferDetails');
+ *
  * The signed-in user comes from Laravel's own auth (`$request->user()`,
  * tried as `->email`, `->getAuthIdentifier()`, `->username`). For the login
  * route (no signed-in user yet), extend this class and override
@@ -85,7 +93,20 @@ class TouchQueMiddleware
     public function handle(Request $request, Closure $next, string $action, ?string $detailsMethod = null)
     {
         $user = $this->resolveUser($request);
-        $details = $detailsMethod && method_exists($request, $detailsMethod) ? $request->{$detailsMethod}() : null;
+        $details = null;
+        if ($detailsMethod) {
+            // A Request macro (Request::macro('transferDetails', ...)) is how a route usually adds
+            // one; method_exists() does not see macros. A name that is neither must not approve
+            // without the details the route meant the phone to show.
+            if (!method_exists($request, $detailsMethod) && !$request::hasMacro($detailsMethod)) {
+                $this->touchQue->log('error', "[TouchQue] TouchQueMiddleware: the Request has no method or macro \"{$detailsMethod}\" for the details");
+                return new JsonResponse([
+                    'touchque' => ['state' => 'blocked', 'reason' => 'misconfigured'],
+                    'error' => ['code' => 'misconfigured', 'message' => 'Two-factor approval is not configured correctly.'],
+                ], 500, ['Cache-Control' => 'no-store']);
+            }
+            $details = $request->{$detailsMethod}();
+        }
 
         $header = fn (string $name) => $request->header($name);
         $input = Guard::inputFromHeaders($header);

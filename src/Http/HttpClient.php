@@ -4,12 +4,19 @@ namespace TouchQue\Http;
 
 use TouchQue\Config;
 use TouchQue\Exceptions\TouchQueAPIException;
+use TouchQue\Exceptions\TouchQueFeatureException;
 use TouchQue\Exceptions\TouchQueNetworkException;
 
 class HttpClient
 {
-    private const SDK_VERSION = '4.0.0';
+    private const SDK_VERSION = '4.2.0';
     private Config $config;
+
+    /** @internal The SDK's own log (silent unless the Config has a logger or debug). */
+    public function log(string $level, string $message): void
+    {
+        $this->config->log($level, $message);
+    }
 
     public function __construct(Config $config)
     {
@@ -47,12 +54,18 @@ class HttpClient
         return $this->send('GET', $pathWithQuery, '');
     }
 
+    /** A GET whose answer is a file (CSV or JSON lines), returned as text. */
+    public function getText(string $endpoint): string
+    {
+        return $this->send('GET', $endpoint, '', true);
+    }
+
     public function delete(string $endpoint): array
     {
         return $this->send('DELETE', $endpoint, '');
     }
 
-    /** Deterministic query string: keys sorted, `?`-prefixed (or ''). */
+    /** Deterministic query string: keys sorted, booleans as `true`/`false`, `?`-prefixed (or ''). */
     private static function buildQuery(array $params): string
     {
         $params = array_filter($params, static fn ($v) => $v !== null);
@@ -60,10 +73,13 @@ class HttpClient
             return '';
         }
         ksort($params);
+        // http_build_query() would send 1/0, which the API reads as no filter at all.
+        $params = array_map(static fn ($v) => is_bool($v) ? ($v ? 'true' : 'false') : $v, $params);
         return '?' . http_build_query($params);
     }
 
-    private function send(string $method, string $pathWithQuery, string $bodyStr): array
+    /** @return array|string the decoded JSON, or the body as text when $asText */
+    private function send(string $method, string $pathWithQuery, string $bodyStr, bool $asText = false)
     {
         $url = $this->config->getBaseUrl() . $pathWithQuery;
         $timestamp = (string)(time() * 1000);
@@ -117,16 +133,19 @@ class HttpClient
         $body = substr($raw, $headerSize);
         $responseData = json_decode($body, true) ?? [];
 
-        if ($statusCode >= 400) {
-            $errorMessage = $responseData['error'] ?? $responseData['message'] ?? 'Unknown API Error';
+        // A redirect is not followed (see above) and is never an answer: a 3xx is an error too, or a
+        // wrong baseUrl would read as an empty success.
+        if ($statusCode >= 300) {
+            $errorMessage = $responseData['error'] ?? $responseData['message']
+                ?? ($statusCode < 400 ? "Unexpected redirect (HTTP {$statusCode}) from the API: check the baseUrl" : 'Unknown API Error');
             $retryAfter = $responseData['retryAfter'] ?? self::readRetryAfterHeader($headerText);
             if ($retryAfter !== null) {
                 $responseData['retryAfter'] = (int)$retryAfter;
             }
-            throw new TouchQueAPIException($errorMessage, $statusCode, $responseData);
+            throw TouchQueFeatureException::fromResponse($errorMessage, $statusCode, $responseData);
         }
 
-        return $responseData;
+        return $asText ? $body : $responseData;
     }
 
     private static function readRetryAfterHeader(string $headerText): ?int

@@ -24,6 +24,38 @@ class LoginTest extends TestCase
         $login->request('a@b.com', 'WITHDRAW', 'txn_1');
     }
 
+    public function testRequestSendsChallengeDigitsOnlyAsTwoOrThree(): void
+    {
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->exactly(2))
+            ->method('post')
+            ->willReturnCallback(function (string $path, array $body) {
+                static $call = 0;
+                $call++;
+                $this->assertSame('/login/request', $path);
+                if ($call === 1) {
+                    $this->assertSame(3, $body['challengeDigits']);
+                } else {
+                    $this->assertArrayNotHasKey('challengeDigits', $body);
+                }
+                return ['requestId' => 'req_1'];
+            });
+
+        $login = new Login($http);
+        $login->request('a@b.com', 'LOGIN', null, null, null, false, true, null, null, null, 3);
+        $login->request('a@b.com', 'LOGIN', null, null, null, false, false, null, null, null, 4);
+    }
+
+    public function testRequestSendsExpiresInWhenGiven(): void
+    {
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->once())
+            ->method('post')
+            ->with('/login/request', ['externalUsername' => 'a@b.com', 'type' => 'AGENT_ON_BEHALF', 'expiresIn' => 180, 'clientSignals' => 'eyJ2IjoxfQ'])
+            ->willReturn(['requestId' => 'req_1']);
+        (new Login($http))->request('a@b.com', 'AGENT_ON_BEHALF', null, null, null, false, false, null, null, null, null, 180, 'eyJ2IjoxfQ');
+    }
+
     public function testRequestForwardsDetailsForTheApprovalScreen(): void
     {
         $details = ['Amount' => '1,250.00 USD', 'Recipient' => 'Jane Doe'];
@@ -145,6 +177,76 @@ class LoginTest extends TestCase
             $this->assertSame('req_1', $e->requestId);
             $this->assertSame('step_up', $e->reason);
         }
+    }
+
+    public function testWaitForApprovalReturnsApprovedOnceTheStatusFlipsToConfirmed(): void
+    {
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->never())->method('post');
+        $http->expects($this->exactly(2))
+            ->method('get')
+            ->with('/login/status/req_1')
+            ->willReturnOnConsecutiveCalls(['status' => 'PENDING'], ['status' => 'CONFIRMED', 'confirmedVia' => 'PUSH', 'provisional' => true]);
+
+        $result = (new Login($http))->waitForApproval('req_1', 5000, 1);
+
+        $this->assertTrue($result['approved']);
+        $this->assertSame('CONFIRMED', $result['status']);
+        $this->assertSame('req_1', $result['requestId']);
+        $this->assertSame('PUSH', $result['confirmedVia']);
+        $this->assertNull($result['assurance']);
+        $this->assertTrue($result['provisional']);
+    }
+
+    public function testWaitForApprovalThrowsRejectedExceptionWhenRejected(): void
+    {
+        $http = $this->createMock(HttpClient::class);
+        $http->method('get')->willReturn(['status' => 'REJECTED']);
+
+        $this->expectException(TouchQueRejectedException::class);
+        (new Login($http))->waitForApproval('req_1', 5000, 1);
+    }
+
+    public function testWaitForApprovalThrowsTimeoutExceptionWhenExpired(): void
+    {
+        $http = $this->createMock(HttpClient::class);
+        $http->method('get')->willReturn(['status' => 'EXPIRED']);
+
+        $this->expectException(TouchQueTimeoutException::class);
+        (new Login($http))->waitForApproval('req_1', 5000, 1);
+    }
+
+    public function testWaitForApprovalThrowsTimeoutExceptionWhenTheTimeoutElapses(): void
+    {
+        $http = $this->createMock(HttpClient::class);
+        $http->method('get')->willReturn(['status' => 'PENDING']);
+
+        $this->expectException(TouchQueTimeoutException::class);
+        (new Login($http))->waitForApproval('req_1', 5, 2);
+    }
+
+    public function testWaitForApprovalThrowsPasskeyRequiredWhenTheRequestMovesToAPasskeyMidFlight(): void
+    {
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->exactly(2))
+            ->method('get')
+            ->willReturnOnConsecutiveCalls(['status' => 'PENDING'], ['status' => 'PENDING', 'requiresPasskey' => true]);
+        try {
+            (new Login($http))->waitForApproval('req_1', 5000, 1);
+            $this->fail('expected TouchQuePasskeyRequiredError');
+        } catch (TouchQuePasskeyRequiredError $e) {
+            $this->assertSame('req_1', $e->requestId);
+            $this->assertSame('step_up', $e->reason);
+        }
+    }
+
+    public function testWaitForApprovalNeedsARequestId(): void
+    {
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->never())->method('get');
+
+        $this->expectException(\TouchQue\Exceptions\TouchQueConfigException::class);
+        (new Login($http))->waitForApproval('');
     }
 
     public function testWebhookReasonAndEventConstants(): void

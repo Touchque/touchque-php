@@ -62,24 +62,32 @@ class VerifyChallengeTest extends TestCase
         $this->assertNotEmpty($seen[0]['expiresAt']);
     }
 
-    public function testAThrowingOnChallengeIsLoggedAndVerifyKeepsWaiting(): void
+    public function testAThrowingOnChallengeGoesToTheLoggerNeverErrorLogAndVerifyKeepsWaiting(): void
     {
         $log = tempnam(sys_get_temp_dir(), 'tq-log');
         $previous = ini_set('error_log', $log);
         $api = self::$api;
+        $lines = [];
+        $logger = function (string $level, string $message) use (&$lines): void {
+            $lines[] = [$level, $message];
+        };
+        $throwing = function (array $c) use ($api) {
+            $api->approve($c['requestId']);
+            throw new \RuntimeException('screen gone');
+        };
         try {
-            $result = $this->client()->login->verify(self::USER, 'SEND_MONEY', null, 5000, null, null, false, false, null, null,
-                function (array $c) use ($api) {
-                    $api->approve($c['requestId']);
-                    throw new \RuntimeException('screen gone');
-                });
+            $logged = new TouchQue(new Config('tq_test_key', 'test_secret', $api->baseUrl, 10000, $logger));
+            $result = $logged->login->verify(self::USER, 'SEND_MONEY', null, 5000, null, null, false, false, null, null, $throwing);
+            // Silent by default: the same failure without a logger writes nothing.
+            $this->client()->login->verify(self::USER, 'SEND_MONEY', null, 5000, null, null, false, false, null, null, $throwing);
         } finally {
             ini_set('error_log', (string)$previous);
         }
 
         $this->assertTrue($result['approved']);
         $this->assertSame('47', $result['challengeCode']);
-        $this->assertStringContainsString('[TouchQue] onChallenge failed: screen gone', (string)file_get_contents($log));
+        $this->assertSame([['warning', '[TouchQue] onChallenge failed: RuntimeException: screen gone']], $lines);
+        $this->assertSame('', (string)file_get_contents($log));
         unlink($log);
     }
 }

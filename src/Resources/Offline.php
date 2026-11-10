@@ -94,6 +94,65 @@ class Offline
         return $this->notApprovedAsResult(fn () => $this->http->post('/offline/totp/verify', $body));
     }
 
+    /**
+     * For checking typed time-based codes while your server cannot reach TouchQue (an outage):
+     * salted, slow digests of each user's next codes, never a key. Up to 1,000 users and 24,000 user-steps a call; `$steps` 1-480
+     * (default 480, four hours) from `$fromStep` (default: the current 30-second step). Returns
+     * `{ stepSeconds, fromStep, steps, notAfterStep, kdf, users: [{ externalUsername, fromStep, salt, digests }] }`
+     * with only the users who can use time-based codes now. Check a typed code with
+     * `matchTotpVerifier()`. Requires the workspace policies `offlineTotpEnabled` and
+     * `outageVerifiersEnabled`. Fetch again every few minutes: removed and frozen users fall out.
+     */
+    public function totpVerifiers(array $externalUsernames, ?int $fromStep = null, ?int $steps = null): array
+    {
+        $body = ['externalUsernames' => array_values($externalUsernames)];
+        if ($fromStep !== null) {
+            $body['fromStep'] = $fromStep;
+        }
+        if ($steps !== null) {
+            $body['steps'] = $steps;
+        }
+        return $this->http->post('/offline/totp/verifiers', $body);
+    }
+
+    /**
+     * Checks a typed code against one user's digests from `totpVerifiers()` without calling
+     * TouchQue. Returns the step the code belongs to (the current one or one either side), or
+     * null. Accept each step once: remember the step you accepted for the user and refuse codes
+     * for it or an older one. `$at`: Unix time (default now).
+     */
+    public static function matchTotpVerifier(array $verifiers, array $user, string $code, ?int $at = null): ?int
+    {
+        $given = str_replace([' ', '-', "\t"], '', strtoupper($code));
+        if (strlen($given) !== 7 || strspn($given, 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789') !== 7) {
+            return null;
+        }
+        $now = intdiv($at ?? time(), (int) $verifiers['stepSeconds']);
+        $salt = base64_decode($user['salt'], true);
+        if ($salt === false) {
+            return null;
+        }
+        $digests = base64_decode($user['digests'], true);
+        $length = (int) $verifiers['kdf']['length'];
+        if ($digests === false || $length <= 0) {
+            return null;
+        }
+        foreach ([$now, $now - 1, $now + 1] as $step) {
+            if ($step < $user['fromStep'] || $step > $verifiers['notAfterStep']) {
+                continue;
+            }
+            $i = ($step - $user['fromStep']) * 2 * $length;
+            if ($i + 2 * $length > strlen($digests)) {
+                continue;
+            }
+            $got = hash_pbkdf2('sha256', $given, $salt . ':' . $step, (int) $verifiers['kdf']['iterations'], $length, true);
+            if (hash_equals(substr($digests, $i, $length), $got) || hash_equals(substr($digests, $i + $length, $length), $got)) {
+                return $step;
+            }
+        }
+        return null;
+    }
+
     private function notApprovedAsResult(callable $call): array
     {
         try {

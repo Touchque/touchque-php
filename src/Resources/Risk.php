@@ -23,7 +23,7 @@ use TouchQue\Exceptions\TouchQueConfigException;
 class Risk
 {
     private const ASSURANCE = ['high', 'normal', 'low'];
-    private const CHECK_OPTIONS = ['externalUsername', 'type', 'clientIp', 'userAgent', 'browserProof', 'maxAgeSeconds', 'context'];
+    private const CHECK_OPTIONS = ['externalUsername', 'type', 'clientIp', 'userAgent', 'browserProof', 'clientSignals', 'deviceRisk', 'deviceRiskRequestId', 'maxAgeSeconds', 'context'];
 
     private HttpClient $http;
 
@@ -75,6 +75,9 @@ class Risk
      *   - clientIp         (string) the end user's IP, compared with the networks of earlier approved sign-ins
      *   - userAgent        (string)
      *   - browserProof     (string) the browser's device-bound key proof (`X-TouchQue-Browser`), passed through untouched
+     *   - clientSignals    (string) the end user's page check from @touchque/web (startClientSignals()->encode()): software driving the browser is never silent
+     *   - deviceRisk       (string) the page's device report from @touchque/web (deviceRisk.collect): a device signal is never silent
+     *   - deviceRiskRequestId (string) the page's identification (deviceRisk.identify), preferred over deviceRisk
      *   - maxAgeSeconds    (int >= 0) your own limit on how long ago the last phone approval in this browser may be;
      *                      0 = always ask. TouchQue never goes beyond its own limit (7 days).
      *   - context          (array) for your TouchQue Actions only (`event.context`)
@@ -90,7 +93,7 @@ class Risk
         self::rejectUnknown('check', $options, self::CHECK_OPTIONS);
         $user = self::requireUser('check', $options);
         $body = ['externalUsername' => $user];
-        foreach (['type', 'clientIp', 'userAgent', 'browserProof'] as $key) {
+        foreach (['type', 'clientIp', 'userAgent', 'browserProof', 'clientSignals', 'deviceRisk', 'deviceRiskRequestId'] as $key) {
             if (!isset($options[$key])) {
                 continue;
             }

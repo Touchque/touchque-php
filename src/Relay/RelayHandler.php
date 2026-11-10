@@ -133,7 +133,7 @@ class RelayHandler
 
         if ($this->getLoginUser === null && !self::$warnedPreAuth) {
             self::$warnedPreAuth = true;
-            error_log('[TouchQue] RelayHandler: POST /login takes the username from the request body'
+            $tq->log('warning', '[TouchQue] RelayHandler: POST /login takes the username from the request body'
                 . ($this->offlineEnabled ? ', and so do the offline routes' : '; the offline routes are disabled until you set it')
                 . '. Set "getLoginUser" to bind them to your first factor (password step) so they cannot be used against arbitrary users.');
         }
@@ -278,7 +278,7 @@ class RelayHandler
             }
             return $res->setBody(['status' => 'success', 'requestId' => $approved['requestId'] ?? null, 'assurance' => $approved['assurance'] ?? null]);
         } catch (\Throwable $error) {
-            return self::authResultError($error);
+            return $this->authResultError($error);
         }
     }
 
@@ -627,7 +627,7 @@ class RelayHandler
     }
 
     /** Same status-code mapping as the guard middleware — kept in sync with the Node SDK. */
-    private static function authResultError(\Throwable $error): RelayResponse
+    private function authResultError(\Throwable $error): RelayResponse
     {
         if ($error instanceof TouchQueRejectedException) {
             return new RelayResponse(403, ['error' => '2FA_REJECTED', 'message' => 'User rejected the 2FA request on their device.']);
@@ -646,7 +646,7 @@ class RelayHandler
                 'error' => self::firstText([$data['error'] ?? null, $data['message'] ?? null, $error->getMessage()]) ?? 'request_failed',
             ]);
         }
-        error_log('[TouchQue Relay Error] ' . get_class($error) . ': ' . $error->getMessage());
+        $this->tq->log('error', '[TouchQue Relay Error] ' . get_class($error) . ': ' . $error->getMessage());
         return new RelayResponse(503, ['error' => '2FA_UNAVAILABLE', 'message' => 'The 2FA verification service is temporarily unavailable.']);
     }
 

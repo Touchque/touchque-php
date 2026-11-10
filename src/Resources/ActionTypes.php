@@ -10,6 +10,19 @@ use TouchQue\Http\HttpClient;
  * TouchQue Actions now.) */
 class ActionTypes
 {
+    /** The Second Thought questions an action type can ask (at most two). */
+    public const SECOND_THOUGHT_QUESTIONS = [
+        'someone_guiding',
+        'safe_account',
+        'remote_access',
+        'asked_for_code',
+        'support_call',
+        'met_online',
+        'promised_return',
+        'know_recipient',
+        'sim_in_hand',
+    ];
+
     private HttpClient $http;
 
     public function __construct(HttpClient $http)
@@ -18,10 +31,17 @@ class ActionTypes
     }
 
     /**
-     * Creates the action type, or updates its name/description/critical flag.
-     * Safe to call on every start-up: it never re-enables a type an admin disabled.
+     * Creates the action type, or updates its name, description, critical flag
+     * and Second Thought questions. Safe to call on every start-up: it never
+     * re-enables a type an admin disabled.
+     *
+     * `$secondThought`: ['questions' => [...], 'locale' => 'tr' | 'en'], at most
+     * two of SECOND_THOUGHT_QUESTIONS, asked on the phone before Approve. A
+     * risky answer never refuses: the approval comes back `provisional` and
+     * the phone asks "Was this you?" later. ['questions' => []] turns them
+     * off; null keeps what the Dashboard has.
      */
-    public function define(string $type, ?string $name = null, ?string $description = null, ?bool $critical = null): array
+    public function define(string $type, ?string $name = null, ?string $description = null, ?bool $critical = null, ?array $secondThought = null): array
     {
         $body = ['type' => $type, 'name' => $name ?? $type];
         if ($description !== null) {
@@ -29,6 +49,9 @@ class ActionTypes
         }
         if ($critical !== null) {
             $body['critical'] = $critical;
+        }
+        if ($secondThought !== null) {
+            $body['secondThought'] = $secondThought;
         }
         return $this->http->post('/action-types', $body);
     }

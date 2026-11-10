@@ -39,6 +39,7 @@ class ConfigTest extends TestCase
     {
         $this->assertSame('http://127.0.0.1:9999', (new Config('tq_auth_x', 'shh', 'http://127.0.0.1:9999'))->getBaseUrl());
         $this->assertSame('https://api.example.com', (new Config('tq_auth_x', 'shh', 'https://api.example.com'))->getBaseUrl());
+        $this->assertSame('http://[::1]:3000', (new Config('tq_auth_x', 'shh', 'http://[::1]:3000'))->getBaseUrl());
     }
     public function testReadsFromEnvironmentWhenArgumentsOmitted(): void
     {

@@ -135,4 +135,25 @@ class ActionsTest extends TestCase
         $last = end($calls);
         $this->assertSame(['POST', '/action-types', ['type' => 'EXPORT_DATA', 'name' => 'Export data', 'critical' => true]], [$last['method'], $last['path'], $last['body']]);
     }
+
+    public function testSecondThoughtAndALookAlikeDestination(): void
+    {
+        $tq = $this->client();
+        $t = $tq->actionTypes->define('PAYOUT', 'Payout', null, null, ['questions' => ['someone_guiding', 'safe_account'], 'locale' => 'en']);
+        $this->assertSame(['questions' => ['someone_guiding', 'safe_account'], 'locale' => 'en'], $t['secondThought']);
+        $tq->actionTypes->define('PAYOUT', 'Payout');
+        $calls = self::$api->calls();
+        $this->assertArrayNotHasKey('secondThought', end($calls)['body']);
+
+        self::$api->link('payee@example.com');
+        $r = $tq->login->request('payee@example.com', 'LOGIN', null, null, null, false, false, null, null, null, null, null, null,
+            ['mfa' => new \DateTimeImmutable('2026-10-26T08:00:00+00:00'), 'device' => 1761465600000],
+            ['kind' => 'iban', 'value' => 'TR33 0006 1005 1978 6000 0013 26', 'known' => ['TR33 0006 1005 1978 6457 8413 26']],
+            'en');
+        $this->assertSame(['known' => false, 'lookalike' => [['field' => 'iban', 'reason' => 'same_start_and_end', 'similarTo' => 'TR33…1326']]], $r['destination']);
+        $calls = self::$api->calls();
+        $body = end($calls)['body'];
+        $this->assertSame(['mfa' => '2026-10-26T08:00:00+00:00', 'device' => 1761465600000], $body['securityChanges']);
+        $this->assertSame('en', $body['locale']);
+    }
 }

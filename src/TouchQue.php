@@ -4,12 +4,19 @@ namespace TouchQue;
 
 use TouchQue\Http\HttpClient;
 use TouchQue\Resources\Actions;
+use TouchQue\Resources\Agents;
+use TouchQue\Resources\Identity;
+use TouchQue\Resources\Mobile;
+use TouchQue\Resources\QrPairings;
+use TouchQue\Resources\DeviceRisk;
+use TouchQue\Resources\SafeGuard;
 use TouchQue\Resources\ActionTypes;
 use TouchQue\Resources\Auth;
 use TouchQue\Resources\Login;
 use TouchQue\Resources\Offline;
 use TouchQue\Resources\Risk;
 use TouchQue\Resources\Recovery;
+use TouchQue\Resources\Assist;
 use TouchQue\Resources\WebAuthn;
 use TouchQue\Resources\Webhook;
 
@@ -38,8 +45,28 @@ class TouchQue
     public Risk $risk;
     /** Never Locked Out: move a user whose phone is gone to a new phone, with colleagues vouching. */
     public Recovery $recovery;
+    /** Help desk: IT working on a person's account in the open, and checks on their phone before sensitive actions. */
+    public Assist $assist;
+    /** AI agents as identities of their own: register (public key), suspend, revoke, kill switch. The agent itself uses TouchQueAgent. */
+    public Agents $agents;
+    /** TouchQue Login: your customers' accounts, roles, organizations, apps, connections (Management API). */
+    public Identity $identity;
+    /** Mobile SDK: your own iOS/Android app approves for your users (enrollment tokens, devices, settings). */
+    public Mobile $mobile;
+    /** Pairing a browser by QR code: the phone that scans it is the one asked to approve. */
+    public QrPairings $qrPairings;
+    /** Device risk: the device on your sign-up, reset, sign-in or approval page (a paid add-on). */
+    public DeviceRisk $deviceRisk;
+    /** Safe Guard: Safe transactions approved on the approver's phone, for TouchQueSafeGuard. */
+    public SafeGuard $safeGuard;
 
     private Config $config;
+
+    /** @internal The SDK's own log (silent unless the Config has a logger or debug). */
+    public function log(string $level, string $message): void
+    {
+        $this->config->log($level, $message);
+    }
 
     public function __construct(?Config $config = null)
     {
@@ -55,6 +82,13 @@ class TouchQue
         $this->actions = new Actions($httpClient);
         $this->risk = new Risk($httpClient);
         $this->recovery = new Recovery($httpClient);
+        $this->assist = new Assist($httpClient);
+        $this->agents = new Agents($httpClient);
+        $this->identity = new Identity($httpClient);
+        $this->mobile = new Mobile($httpClient);
+        $this->qrPairings = new QrPairings($httpClient);
+        $this->deviceRisk = new DeviceRisk($httpClient);
+        $this->safeGuard = new SafeGuard($httpClient);
     }
 
     /** @internal used by Guard/Steps to sign/verify the browser-facing token. */

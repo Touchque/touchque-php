@@ -71,6 +71,21 @@ class WebAuthn
 
     // ── passwordless-primary login ────────────────────────────────────────
     /**
+     * Whether passkey sign-in (`TenantPolicy.passwordlessLoginEnabled`) is on
+     * for your workspace. Ask before your sign-in page shows its passkey
+     * button and passkey autofill: when it is off, `primaryOptions` answers
+     * 403 `passwordless_login_disabled`. Read-only.
+     * Returns `['enabled' => bool, 'userVerification' => 'required'|'preferred'|null]`.
+     */
+    public function primaryAvailability(): array
+    {
+        $raw = $this->http->get('/webauthn/authenticate/primary/availability');
+        $enabled = is_array($raw) && ($raw['enabled'] ?? null) === true;
+        $uv = is_array($raw) ? ($raw['userVerification'] ?? null) : null;
+        return ['enabled' => $enabled, 'userVerification' => $enabled && in_array($uv, ['required', 'preferred'], true) ? $uv : null];
+    }
+
+    /**
      * Step 1 of a passwordless-primary login. Requires
      * `TenantPolicy.passwordlessLoginEnabled`. A 404 `no_passkey_registered`
      * means the user has no passkey — fall back to password login.

@@ -135,6 +135,31 @@ class WebhookTest extends TestCase
         $this->assertSame(['z' => 1, 'a' => 2], $result['context']);
     }
 
+    public function testLineSeparatorsStayRawAsJsonStringifyWritesThem(): void
+    {
+        // JSON.stringify leaves U+2028 and U+2029 unescaped in what the server signs.
+        $canonical = '{"details":"line' . "\u{2028}" . 'next' . "\u{2029}" . 'end","event":"login.confirmed","requestId":"req_1"}';
+
+        $result = $this->makeWebhook()->verify($this->serverWebhookRaw($canonical), null, 0);
+
+        $this->assertSame("line\u{2028}next\u{2029}end", $result['details']);
+    }
+
+    public function testNumbersKeepTheirShortestFormWhateverSerializePrecisionSays(): void
+    {
+        $canonical = '{"event":"login.confirmed","requestId":"req_1","score":0.1}';
+        $old = ini_get('serialize_precision');
+        ini_set('serialize_precision', '17');
+        try {
+            $result = $this->makeWebhook()->verify($this->serverWebhookRaw($canonical), null, 0);
+            $this->assertSame('17', ini_get('serialize_precision'), 'the setting is put back');
+        } finally {
+            ini_set('serialize_precision', (string)$old);
+        }
+
+        $this->assertSame(0.1, $result['score']);
+    }
+
     public function testPreservesEmptyObjectValue(): void
     {
         // An assoc round-trip turns `{}` into `[]`; the object form must survive.
@@ -205,5 +230,29 @@ class WebhookTest extends TestCase
         }
         $result = $this->makeWebhook()->verify($this->serverWebhook($this->freshPayload(['jti' => 'victim'])), null, 300, $cache);
         $this->assertSame('victim', $result['jti']);
+    }
+
+    public function testEventConstantsCarryTheNamesTheBackendSends(): void
+    {
+        // The event names the API server sends for the Mobile SDK, Never Locked Out recovery and the help desk.
+        $this->assertSame('MOBILE_PUSH', Webhook::EVENT_MOBILE_PUSH);
+        $recovery = [Webhook::EVENT_RECOVERY_STARTED, Webhook::EVENT_RECOVERY_DEVICE_BOUND, Webhook::EVENT_RECOVERY_COOLING,
+            Webhook::EVENT_RECOVERY_COMPLETED, Webhook::EVENT_RECOVERY_VETOED, Webhook::EVENT_RECOVERY_EXPIRED, Webhook::EVENT_RECOVERY_FAILED];
+        $this->assertSame(['RECOVERY_STARTED', 'RECOVERY_DEVICE_BOUND', 'RECOVERY_COOLING', 'RECOVERY_COMPLETED',
+            'RECOVERY_VETOED', 'RECOVERY_EXPIRED', 'RECOVERY_FAILED'], $recovery);
+        $assist = [Webhook::EVENT_ASSIST_OPENED, Webhook::EVENT_ASSIST_ENDED, Webhook::EVENT_ASSIST_CHECK_PASSED, Webhook::EVENT_ASSIST_CHECK_FAILED,
+            Webhook::EVENT_ASSIST_UNFROZEN, Webhook::EVENT_ASSIST_CLAIM_CONFIRMED, Webhook::EVENT_ASSIST_CLAIM_UNVERIFIED];
+        $this->assertSame(['ASSIST_OPENED', 'ASSIST_ENDED', 'ASSIST_CHECK_PASSED', 'ASSIST_CHECK_FAILED',
+            'ASSIST_UNFROZEN', 'ASSIST_CLAIM_CONFIRMED', 'ASSIST_CLAIM_UNVERIFIED'], $assist);
+    }
+
+    public function testMobilePushWebhookVerifiesAndBecomesAPush(): void
+    {
+        $event = $this->makeWebhook()->verify($this->serverWebhook($this->freshPayload([
+            'event' => Webhook::EVENT_MOBILE_PUSH, 'externalUsername' => 'ada@shop.example', 'deviceId' => 'd1', 'platform' => 'ios',
+            'pushToken' => 'apns-token', 'kind' => 'approval',
+        ])));
+        $this->assertSame(Webhook::EVENT_MOBILE_PUSH, $event['event']);
+        $this->assertNotNull(\TouchQue\Resources\Mobile::pushFromWebhook($event));
     }
 }

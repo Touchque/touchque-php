@@ -96,6 +96,22 @@ class WebAuthnTest extends TestCase
         $this->assertTrue($wa->primaryVerify('att_1', ['id' => 'a'])['requiresStepUp']);
     }
 
+    public function testPrimaryAvailabilitySaysWhetherPasskeySignInIsOn(): void
+    {
+        $http = $this->http();
+        $http->expects($this->exactly(3))->method('get')
+            ->with('/webauthn/authenticate/primary/availability')
+            ->willReturnOnConsecutiveCalls(
+                ['enabled' => true, 'userVerification' => 'required'],
+                ['enabled' => false, 'userVerification' => 'required'],
+                []
+            );
+        $wa = new WebAuthn($http);
+        $this->assertSame(['enabled' => true, 'userVerification' => 'required'], $wa->primaryAvailability());
+        $this->assertSame(['enabled' => false, 'userVerification' => null], $wa->primaryAvailability());
+        $this->assertSame(['enabled' => false, 'userVerification' => null], $wa->primaryAvailability());
+    }
+
     public function testPrimaryOptionsWithoutUsernameIsForAnyPasskey(): void
     {
         $http = $this->http();

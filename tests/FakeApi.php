@@ -44,6 +44,12 @@ class FakeApi
         return json_decode((string)$res, true) ?? [];
     }
 
+    /** A /__test/ call of the fake (org agents, workload tokens…): its JSON answer. */
+    public function post(string $path, array $body = []): array
+    {
+        return $this->call($path, $body);
+    }
+
     public function link(string $user): void
     {
         $this->call('/__test/link', ['user' => $user]);
@@ -101,6 +107,12 @@ class FakeApi
     public function lastCheck(): ?array
     {
         return $this->getJson('/__test/last-check');
+    }
+
+    /** Device risk: the query of the last GET /device-risk/events. */
+    public function lastDeviceRiskSearch(): ?array
+    {
+        return $this->getJson('/__test/last-device-risk-search');
     }
 
     /** Forgets every request, linked user, known browser and option. */

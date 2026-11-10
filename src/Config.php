@@ -12,16 +12,27 @@ class Config
     private string $apiSecret;
     private string $baseUrl;
     private int $timeout;
+    /** @var object|callable|null */
+    private $logger;
+    private bool $debug;
 
     /**
      * Falls back to the environment when an argument is omitted: `TQ_API_KEY`,
      * `TQ_API_SECRET`, `TQ_API_URL` (default `https://api.touchque.com`).
+     *
+     * @param object|callable|null $logger Where the SDK reports its own problems (a misconfigured
+     *   guard, a failed onChallenge, a relay without getLoginUser): any PSR-3 logger (its
+     *   warning() / error()), or a callable(string $level, string $message). Default: nothing is
+     *   logged. Lines carry an error's class and message, never request data.
+     * @param bool $debug With no logger: write those lines to error_log() (local development).
      */
     public function __construct(
         ?string $apiKey = null,
         ?string $apiSecret = null,
         ?string $baseUrl = null,
-        int $timeout = 10000
+        int $timeout = 10000,
+        $logger = null,
+        bool $debug = false
     ) {
         $apiKey = $apiKey ?? (getenv('TQ_API_KEY') ?: null);
         $apiSecret = $apiSecret ?? (getenv('TQ_API_SECRET') ?: null);
@@ -38,6 +49,33 @@ class Config
         $this->apiSecret = $apiSecret;
         $this->baseUrl = rtrim($baseUrl, '/');
         $this->timeout = $timeout;
+        $this->logger = $logger;
+        $this->debug = $debug;
+    }
+
+    /**
+     * @internal Reports one of the SDK's own problems ('warning' or 'error'): to the logger, to
+     * error_log() with debug, else nowhere. A logger that throws never breaks the request.
+     */
+    public function log(string $level, string $message): void
+    {
+        try {
+            if (is_callable($this->logger)) {
+                ($this->logger)($level, $message);
+            } elseif (is_object($this->logger) && method_exists($this->logger, $level)) {
+                $this->logger->{$level}($message);
+            } elseif ($this->logger === null && $this->debug) {
+                error_log($message);
+            }
+        } catch (\Throwable $e) {
+            // a logger must never break a request
+        }
+    }
+
+    /** @internal `Class: message` for a log line: never the request it came from. */
+    public static function describe(\Throwable $e): string
+    {
+        return get_class($e) . ': ' . $e->getMessage();
     }
 
     /** Allow plaintext http only for localhost / loopback (local development). */
@@ -48,7 +86,8 @@ class Config
         if ($scheme === 'https') {
             return;
         }
-        if ($scheme === 'http' && in_array($host, ['localhost', '127.0.0.1', '::1'], true)) {
+        // parse_url() keeps the brackets of an IPv6 host: http://[::1]:3000 gives "[::1]".
+        if ($scheme === 'http' && in_array($host, ['localhost', '127.0.0.1', '::1', '[::1]'], true)) {
             return;
         }
         if ($scheme === 'http') {

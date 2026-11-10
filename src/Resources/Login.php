@@ -40,6 +40,20 @@ class Login
      * browser, so a later `$tq->risk->check()` can let the same browser in
      * without asking. Pass it through untouched; an invalid proof only means
      * "a browser TouchQue does not know".
+     *
+     * `$securityChanges`: when the user's sign-in security last changed in your
+     * system, ['password' | 'mfa' | 'device' | 'email' | 'phone' => DateTimeInterface,
+     * ISO 8601 string or epoch milliseconds]. TouchQue adds what it saw itself;
+     * access rules and Actions read the minutes since each
+     * (`minutesSince.mfaChange`, `.deviceChange`, ...), e.g. refuse
+     * `PAYOUT_CHANGE` within 24 hours of a 2FA change.
+     *
+     * `$destination`: where the action sends money or value,
+     * ['kind' => 'iban' | 'account' | 'wallet' | 'address' | 'payee', 'value' => ..., 'known' => [...]].
+     * The phone shows it in full in groups of four, with a warning when it
+     * looks like one the user used before but is not the same; the answer's
+     * `destination` is ['known' => bool, 'lookalike' => [...]]. Do not repeat
+     * it in `$details`. `$locale` ('tr' default, or 'en') is the language of those rows.
      */
     public function request(
         string $externalUsername,
@@ -51,7 +65,17 @@ class Login
         bool $requireNumberMatch = false,
         ?array $details = null,
         ?string $browserProof = null,
-        ?array $context = null
+        ?array $context = null,
+        ?int $challengeDigits = null,
+        ?int $expiresIn = null,
+        ?string $clientSignals = null,
+        ?array $securityChanges = null,
+        ?array $destination = null,
+        ?string $locale = null,
+        ?string $qrPairing = null,
+        ?string $deviceRisk = null,
+        ?string $deviceRiskRequestId = null,
+        ?array $reply = null
     ): array {
         $payload = [
             'externalUsername' => $externalUsername,
@@ -73,6 +97,36 @@ class Login
         if ($requireNumberMatch) {
             $payload['requireNumberMatch'] = true;
         }
+        if ($challengeDigits === 2 || $challengeDigits === 3) {
+            $payload['challengeDigits'] = $challengeDigits;
+        }
+        // How long the push waits for the person: 30 (default) to 300 seconds.
+        if ($expiresIn !== null) {
+            $payload['expiresIn'] = $expiresIn;
+        }
+        // A browser pairing by QR code ($tq->qrPairings), confirmed on the phone: only that phone is asked, once.
+        if ($qrPairing !== null && $qrPairing !== '') {
+            $payload['qrPairing'] = $qrPairing;
+        }
+        // Ask the person to type back on the phone a sign-in code another service sent them:
+        // ['kind' => 'code', 'key' => CodeReply::newKey()['publicKey'], 'channel' => 'sms', 'target' => '+**********26'].
+        // status()['reply']['ct'] holds only the ciphertext: \TouchQue\CodeReply::open() opens it. Not with $qrPairing.
+        if ($reply !== null) {
+            $payload['reply'] = $reply;
+        }
+        // The end user's page check from @touchque/web: a browser driven by software asks with number matching.
+        if ($clientSignals !== null && $clientSignals !== '') {
+            $payload['clientSignals'] = $clientSignals;
+        }
+        // The page's device report from @touchque/web (deviceRisk.collect), when the workspace turned Device risk on:
+        // its signals only ever ask for more.
+        if ($deviceRisk !== null && $deviceRisk !== '') {
+            $payload['deviceRisk'] = $deviceRisk;
+        }
+        // Or the page's identification (deviceRisk.identify), for this account only.
+        if ($deviceRiskRequestId !== null && $deviceRiskRequestId !== '') {
+            $payload['deviceRiskRequestId'] = $deviceRiskRequestId;
+        }
         if ($details !== null && count($details) > 0) {
             $payload['details'] = $details;
         }
@@ -83,8 +137,30 @@ class Login
         if ($context !== null && count($context) > 0) {
             $payload['context'] = $context;
         }
+        if ($securityChanges !== null && count($securityChanges) > 0) {
+            $payload['securityChanges'] = self::securityChangesBody($securityChanges);
+        }
+        if ($destination !== null && count($destination) > 0) {
+            $payload['destination'] = $destination;
+        }
+        if ($locale !== null && $locale !== '') {
+            $payload['locale'] = $locale;
+        }
 
         return $this->http->post('/login/request', $payload);
+    }
+
+    /** Dates go out as ISO 8601; strings and epoch milliseconds as given. */
+    private static function securityChangesBody(array $changes): array
+    {
+        $out = [];
+        foreach ($changes as $kind => $at) {
+            if ($at === null) {
+                continue;
+            }
+            $out[$kind] = $at instanceof \DateTimeInterface ? $at->format(\DateTimeInterface::ATOM) : $at;
+        }
+        return $out;
     }
 
     /**
@@ -93,6 +169,59 @@ class Login
     public function status(string $requestId): array
     {
         return $this->http->get('/login/status/' . rawurlencode($requestId));
+    }
+
+    /**
+     * Wait (poll) until the user approves or rejects a request you sent with
+     * `request()`: `verify()` without the request, for when you show the
+     * number (`challengeCode`) or store the request id first. Mirrors the
+     * Node SDK's `login.waitForApproval`.
+     *
+     *     $sent = $tq->login->request($user, 'SEND_MONEY');
+     *     show($sent['challengeCode'] ?? null);
+     *     $result = $tq->login->waitForApproval($sent['requestId'], 30000);
+     *
+     * @return array{approved: bool, status: string, requestId: string, assurance: ?string, confirmedVia: ?string, provisional: bool}
+     * @throws TouchQuePasskeyRequiredError when the user tapped Approve during a call and the
+     *   request now waits for a passkey (`reason` step_up).
+     * @throws TouchQueRejectedException when the user rejects it.
+     * @throws TouchQueTimeoutException when it expired or `$timeoutMs` (default 30 seconds) ran out.
+     */
+    public function waitForApproval(string $requestId, int $timeoutMs = 30000, int $pollIntervalMs = 400): array
+    {
+        if ($requestId === '') {
+            throw new TouchQueConfigException('waitForApproval() needs the request id');
+        }
+        $start = microtime(true);
+        while (true) {
+            $statusResult = $this->status($requestId);
+            $status = $statusResult['status'] ?? null;
+            if ($status === 'CONFIRMED') {
+                return [
+                    'approved' => true,
+                    'status' => $status,
+                    'requestId' => $requestId,
+                    'assurance' => $statusResult['assurance'] ?? null,
+                    'confirmedVia' => $statusResult['confirmedVia'] ?? null,
+                    // Vishing Shield: approved during a call; critical actions wait for the phone to re-confirm.
+                    'provisional' => !empty($statusResult['provisional']),
+                ];
+            }
+            if ($status === 'REJECTED') {
+                throw new TouchQueRejectedException("Request $requestId was rejected by the user.");
+            }
+            if ($status === 'EXPIRED') {
+                throw new TouchQueTimeoutException("Request $requestId expired before it was approved.");
+            }
+            // Vishing Shield: tapped during a call, the request now waits for a passkey in the browser.
+            if ($status === 'PENDING' && !empty($statusResult['requiresPasskey'])) {
+                throw new TouchQuePasskeyRequiredError($requestId, 'step_up');
+            }
+            if ((microtime(true) - $start) * 1000 > $timeoutMs) {
+                throw new TouchQueTimeoutException("Request $requestId was not approved within {$timeoutMs}ms");
+            }
+            usleep(max(0, $pollIntervalMs) * 1000);
+        }
     }
 
     /**
@@ -128,9 +257,13 @@ class Login
         ?array $details = null,
         ?string $browserProof = null,
         ?callable $onChallenge = null,
-        ?array $context = null
+        ?array $context = null,
+        ?int $challengeDigits = null,
+        ?array $securityChanges = null,
+        ?array $destination = null,
+        ?string $locale = null
     ): array {
-        $requestResult = $this->request($externalUsername, $type, $referenceId, $clientIp, $userAgent, $requireBiometric, $requireNumberMatch, $details, $browserProof, $context);
+        $requestResult = $this->request($externalUsername, $type, $referenceId, $clientIp, $userAgent, $requireBiometric, $requireNumberMatch, $details, $browserProof, $context, $challengeDigits, null, null, $securityChanges, $destination, $locale);
         $requestId = $requestResult['requestId'];
         if (!empty($requestResult['requiresPasskey'])) {
             throw new TouchQuePasskeyRequiredError($requestId);
@@ -148,7 +281,7 @@ class Login
                 $onChallenge($challenge);
             } catch (\Throwable $e) {
                 // The caller's callback must not stop the wait.
-                error_log('[TouchQue] onChallenge failed: ' . $e->getMessage());
+                $this->http->log('warning', '[TouchQue] onChallenge failed: ' . \TouchQue\Config::describe($e));
             }
         }
 
