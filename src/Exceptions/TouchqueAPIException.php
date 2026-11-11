@@ -1,10 +1,10 @@
 <?php
 
-namespace TouchQue\Exceptions;
+namespace Touchque\Exceptions;
 
 /** The API returned an error response (status >= 400). `getCode()` is the
  * HTTP status; `getData()` is the decoded JSON body. */
-class TouchQueAPIException extends TouchQueException
+class TouchqueAPIException extends TouchqueException
 {
     /** HTTP status code (e.g. 404, 429, 423). Alias for `getCode()`. */
     public function getStatus(): int

@@ -1,22 +1,22 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueRejectedException;
-use TouchQue\Exceptions\TouchQueTimeoutException;
-use TouchQue\Http\HttpClient;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueRejectedException;
+use Touchque\Exceptions\TouchqueTimeoutException;
+use Touchque\Http\HttpClient;
 
 /**
- * Safe Guard: a Safe transaction approved on the approver's phone for TouchQueSafeGuard (the
+ * Safe Guard: a Safe transaction approved on the approver's phone for TouchqueSafeGuard (the
  * guard on your Safe). You send the raw transaction; the phone gets the raw fields only, decodes
  * them itself, shows its own rows and signs, with a key only its biometrics unlock, a 105-byte
- * approval of the hash it computed. TouchQue never holds a key that can approve.
+ * approval of the hash it computed. Touchque never holds a key that can approve.
  *
  * 1. `request($user, $type, $safeTx)` asks the phone (same pipeline as `login->request`: risk
  *    engine, push limit, Vishing Shield, case code, always biometrics).
  * 2. `waitForApproval($requestId)` (or poll `status`) until the phone answered.
- * 3. Check `safeTx.approval` yourself with `\TouchQue\SafeApproval::verify`: it needs your own
+ * 3. Check `safeTx.approval` yourself with `\Touchque\SafeApproval::verify`: it needs your own
  *    transaction and the approver's key from the guard, not this response, and the purpose you
  *    are about to use it for ('approve' by default; name 'schedule' for a governance change).
  * 4. `purpose` 'approve': `SafeApproval::withApprovals($ownerSignatures, $approvals)` as the
@@ -53,13 +53,13 @@ class SafeGuard
     public function request(string $externalUsername, string $type, array $safeTx, array $options = []): array
     {
         if ($externalUsername === '') {
-            throw new TouchQueConfigException('safeGuard->request() needs an externalUsername.');
+            throw new TouchqueConfigException('safeGuard->request() needs an externalUsername.');
         }
         if ($type === '') {
-            throw new TouchQueConfigException('safeGuard->request() needs a type: an action type from your dashboard.');
+            throw new TouchqueConfigException('safeGuard->request() needs a type: an action type from your dashboard.');
         }
         if (!isset($safeTx['tx']) || !is_array($safeTx['tx'])) {
-            throw new TouchQueConfigException("safeGuard->request() needs safeTx: ['chainId', 'safe', 'guard', 'tx', 'config', 'approverIndex'].");
+            throw new TouchqueConfigException("safeGuard->request() needs safeTx: ['chainId', 'safe', 'guard', 'tx', 'config', 'approverIndex'].");
         }
         // Large integers go as decimal strings, as the API takes them.
         if (isset($safeTx['chainId']) && is_int($safeTx['chainId'])) {
@@ -83,7 +83,7 @@ class SafeGuard
     public function status(string $requestId): array
     {
         if ($requestId === '') {
-            throw new TouchQueConfigException('safeGuard->status() needs a requestId.');
+            throw new TouchqueConfigException('safeGuard->status() needs a requestId.');
         }
         return $this->http->get('/safe-guard/approvals/' . rawurlencode($requestId));
     }
@@ -91,8 +91,8 @@ class SafeGuard
     /**
      * Polls until the phone approved and returns the status with the approval.
      *
-     * @throws TouchQueRejectedException when the person said no.
-     * @throws TouchQueTimeoutException when it expired or `$timeoutMs` (default 5 minutes, the request's own life) ran out.
+     * @throws TouchqueRejectedException when the person said no.
+     * @throws TouchqueTimeoutException when it expired or `$timeoutMs` (default 5 minutes, the request's own life) ran out.
      */
     public function waitForApproval(string $requestId, int $timeoutMs = 300000, int $pollIntervalMs = 1500): array
     {
@@ -103,13 +103,13 @@ class SafeGuard
                 return $status;
             }
             if (($status['status'] ?? null) === 'REJECTED') {
-                throw new TouchQueRejectedException("Request $requestId was rejected by the user.");
+                throw new TouchqueRejectedException("Request $requestId was rejected by the user.");
             }
             if (($status['status'] ?? null) === 'EXPIRED') {
-                throw new TouchQueTimeoutException("Request $requestId expired before it was approved.");
+                throw new TouchqueTimeoutException("Request $requestId expired before it was approved.");
             }
             if ((microtime(true) - $start) * 1000 > $timeoutMs) {
-                throw new TouchQueTimeoutException("Safe Guard approval timed out after {$timeoutMs}ms");
+                throw new TouchqueTimeoutException("Safe Guard approval timed out after {$timeoutMs}ms");
             }
             usleep($pollIntervalMs * 1000);
         }

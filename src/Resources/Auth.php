@@ -1,8 +1,8 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Http\HttpClient;
+use Touchque\Http\HttpClient;
 
 class Auth
 {
@@ -49,7 +49,7 @@ class Auth
      * Look up a user's link status without sending a push — `used` flips true
      * and `deviceId` is set once the mobile app scans the setup secret.
      * Returns `{ externalUsername, deviceId, used, frozen, createdAt, expireAt, device }`.
-     * Throws TouchQueAPIException (404) if the user is unknown.
+     * Throws TouchqueAPIException (404) if the user is unknown.
      *
      * `device` is the linked phone's posture for device trust, or `null` before a phone is linked:
      * `{ platform ('ios'|'android'|null), model, osVersion, securityPatch (Android, YYYY-MM-DD),

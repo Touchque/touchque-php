@@ -1,14 +1,14 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Touchque;
 
-/** login->reportFraud() against the shared fake TouchQue API. */
+/** login->reportFraud() against the shared fake Touchque API. */
 class ReportFraudTest extends TestCase
 {
     private static ?FakeApi $api = null;
@@ -25,9 +25,9 @@ class ReportFraudTest extends TestCase
         }
     }
 
-    private function client(): TouchQue
+    private function client(): Touchque
     {
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
     public function testReportFraudFlow(): void
@@ -43,20 +43,20 @@ class ReportFraudTest extends TestCase
         try {
             $tq->login->reportFraud($req['requestId'], 'because');
             $this->fail('invalid reason must be rejected');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame(400, $e->getStatus());
         }
         try {
             $tq->login->reportFraud('unknown-id');
             $this->fail('unknown request must be rejected');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame(404, $e->getStatus());
         }
     }
 
     public function testEmptyIdFailsLocally(): void
     {
-        $this->expectException(TouchQueConfigException::class);
+        $this->expectException(TouchqueConfigException::class);
         $this->client()->login->reportFraud('');
     }
 }

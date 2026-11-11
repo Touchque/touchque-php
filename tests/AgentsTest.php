@@ -1,21 +1,21 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\AgentKeys;
-use TouchQue\ApprovalToken;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueApprovalException;
-use TouchQue\Exceptions\TouchQueApprovalMismatchException;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\TouchQue;
-use TouchQue\TouchQueAgent;
+use Touchque\AgentKeys;
+use Touchque\ApprovalToken;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueApprovalException;
+use Touchque\Exceptions\TouchqueApprovalMismatchException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Touchque;
+use Touchque\TouchqueAgent;
 
 /**
  * AI agents in the PHP SDK: management calls send what the shared vectors
- * (fixtures/agent-vectors.json) say, and TouchQueAgent signs in with its own
+ * (fixtures/agent-vectors.json) say, and TouchqueAgent signs in with its own
  * key against the shared fake API, which checks the private_key_jwt
  * assertion and the DPoP proofs like the real API.
  */
@@ -35,14 +35,14 @@ class AgentsTest extends TestCase
         self::$api->close();
     }
 
-    private function client(): TouchQue
+    private function client(): Touchque
     {
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
-    private function agent(string $id, $key, ?string $kid = null): TouchQueAgent
+    private function agent(string $id, $key, ?string $kid = null): TouchqueAgent
     {
-        return new TouchQueAgent($id, $key, $kid, self::$api->baseUrl);
+        return new TouchqueAgent($id, $key, $kid, self::$api->baseUrl);
     }
 
     public function testThumbprintAndAthVectors(): void
@@ -110,7 +110,7 @@ class AgentsTest extends TestCase
                 $this->assertEquals($want['body'], $call['body'], $v['name']);
             }
         }
-        $this->expectException(TouchQueConfigException::class);
+        $this->expectException(TouchqueConfigException::class);
         $ag->create('x', ['LOGIN'], ['publicKey' => $k1['privateJwk']]);
     }
 
@@ -147,7 +147,7 @@ class AgentsTest extends TestCase
         try {
             $agent->getConnectionToken('john@example.com', 'google');
             $this->fail('expected not_connected');
-        } catch (\TouchQue\Exceptions\TouchQueAPIException $e) {
+        } catch (\Touchque\Exceptions\TouchqueAPIException $e) {
             $this->assertSame('not_connected', $e->getErrorCode());
         }
         $tq->agents->vault->removeAccount('google', 'jane@example.com');
@@ -178,7 +178,7 @@ class AgentsTest extends TestCase
         try {
             $agent->me();
             $this->fail('expected a refusal');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame(403, $e->getStatus());
             $this->assertSame('agent_blocked', $e->getErrorCode());
             $this->assertSame('suspended', $e->getReason());
@@ -186,7 +186,7 @@ class AgentsTest extends TestCase
         try {
             $this->agent($created['id'], $keys['privateJwk'])->me();
             $this->fail('expected a refusal');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame('unauthorized_client', $e->getErrorCode());
             $this->assertSame('suspended', $e->getReason());
         }
@@ -195,7 +195,7 @@ class AgentsTest extends TestCase
         try {
             $this->agent($created['id'], $stranger['privateJwk'], $keys['publicJwk']['kid'])->me();
             $this->fail('expected a refusal');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame(401, $e->getStatus());
             $this->assertSame('invalid_client', $e->getErrorCode());
         }
@@ -203,7 +203,7 @@ class AgentsTest extends TestCase
         try {
             $agent->me();
             $this->fail('expected a refusal');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame('workspace_paused', $e->getReason());
         }
         $tq->agents->setKillSwitch(false);
@@ -215,9 +215,9 @@ class AgentsTest extends TestCase
         $key = AgentKeys::generate()['privateJwk'];
         foreach ([['nope', $key, null], ['agt_abcdefghijkmnpqrstuv', 'not a key', null], ['agt_abcdefghijkmnpqrstuv', $key, 'http://api.example.com']] as [$id, $k, $url]) {
             try {
-                new TouchQueAgent($id, $k, null, $url);
+                new TouchqueAgent($id, $k, null, $url);
                 $this->fail('expected a configuration error');
-            } catch (TouchQueConfigException $e) {
+            } catch (TouchqueConfigException $e) {
                 $this->assertNotEmpty($e->getMessage());
             }
         }
@@ -233,7 +233,7 @@ class AgentsTest extends TestCase
             try {
                 ApprovalToken::verifyWith($token, $v['jwks'], $aud, [], $at);
                 $this->fail('expected a refusal');
-            } catch (TouchQueApprovalMismatchException $e) {
+            } catch (TouchqueApprovalMismatchException $e) {
                 $this->assertNotEmpty($e->getMessage());
             }
         }
@@ -247,7 +247,7 @@ class AgentsTest extends TestCase
             try {
                 ApprovalToken::verifyWith($token, $jwks, $aud, [], $v['verifyAt']);
                 $this->fail('expected a refusal: ' . $want);
-            } catch (TouchQueApprovalMismatchException $e) {
+            } catch (TouchqueApprovalMismatchException $e) {
                 $this->assertStringContainsString($want, $e->getMessage());
             }
         }
@@ -288,13 +288,13 @@ class AgentsTest extends TestCase
         try {
             $tq->agents->verifyApprovalToken($token, 'touchque:workspace:other');
             $this->fail('expected another workspace');
-        } catch (TouchQueApprovalMismatchException $e) {
+        } catch (TouchqueApprovalMismatchException $e) {
             $this->assertStringContainsString('another workspace', $e->getMessage());
         }
         try {
             $tq->agents->redeemApproval($token, ['authorizationDetails' => array_merge($payment, ['instructedAmount' => ['currency' => 'TRY', 'amount' => '5000.00']])]);
             $this->fail('expected a mismatch');
-        } catch (TouchQueApprovalMismatchException $e) {
+        } catch (TouchqueApprovalMismatchException $e) {
             $this->assertStringContainsString('differ', $e->getMessage());
         }
         $approval = $tq->agents->redeemApproval($token, ['user' => $user, 'type' => 'PAY_INVOICE', 'authorizationDetails' => ['type' => 'payment_initiation', 'instructedAmount' => ['currency' => 'try', 'amount' => '500']]]);
@@ -302,7 +302,7 @@ class AgentsTest extends TestCase
         try {
             $tq->agents->redeemApproval($token);
             $this->fail('expected already_redeemed');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame('already_redeemed', $e->getErrorCode());
         }
 
@@ -312,7 +312,7 @@ class AgentsTest extends TestCase
         try {
             $agent->waitForApproval($ask2['approvalId'], 10, 0.5);
             $this->fail('expected a rejection');
-        } catch (TouchQueApprovalException $e) {
+        } catch (TouchqueApprovalException $e) {
             $this->assertSame('rejected', $e->getStatus());
         }
     }
@@ -355,7 +355,7 @@ class AgentsTest extends TestCase
         try {
             $agent->requestApproval($user, 'PAY_INVOICE', [$payment], ['mandateId' => $mandate['mandateId']]);
             $this->fail('expected mandate_revoked');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame('mandate_revoked', $e->getErrorCode());
         }
     }

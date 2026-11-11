@@ -1,12 +1,12 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Http\HttpClient;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Http\HttpClient;
 
 /**
- * Secrets your TouchQue Actions read (`event.secrets.NAME`) or notify with.
+ * Secrets your Touchque Actions read (`event.secrets.NAME`) or notify with.
  * A value is encrypted and never readable again through the API.
  */
 class ActionSecrets
@@ -21,7 +21,7 @@ class ActionSecrets
     public function set(string $name, string $value): array
     {
         if ($value === '') {
-            throw new TouchQueConfigException('A secret value is a non-empty string');
+            throw new TouchqueConfigException('A secret value is a non-empty string');
         }
         return $this->http->put(self::path($name), ['value' => $value]);
     }
@@ -40,7 +40,7 @@ class ActionSecrets
     private static function path(string $name): string
     {
         if (!preg_match('/^[A-Z][A-Z0-9_]{0,63}$/', $name)) {
-            throw new TouchQueConfigException('A secret name is capital letters, digits or _ (e.g. SLACK_WEBHOOK_URL)');
+            throw new TouchqueConfigException('A secret name is capital letters, digits or _ (e.g. SLACK_WEBHOOK_URL)');
         }
         return '/actions/secrets/' . $name;
     }

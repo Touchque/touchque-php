@@ -1,15 +1,15 @@
 <?php
 
-namespace TouchQue\Http;
+namespace Touchque\Http;
 
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueFeatureException;
-use TouchQue\Exceptions\TouchQueNetworkException;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueFeatureException;
+use Touchque\Exceptions\TouchqueNetworkException;
 
 class HttpClient
 {
-    private const SDK_VERSION = '4.2.0';
+    private const SDK_VERSION = '5.0.0';
     private Config $config;
 
     /** @internal The SDK's own log (silent unless the Config has a logger or debug). */
@@ -126,7 +126,7 @@ class HttpClient
         }
 
         if ($error || $raw === false) {
-            throw new TouchQueNetworkException('Network error: ' . $error);
+            throw new TouchqueNetworkException('Network error: ' . $error);
         }
 
         $headerText = substr($raw, 0, $headerSize);
@@ -142,7 +142,7 @@ class HttpClient
             if ($retryAfter !== null) {
                 $responseData['retryAfter'] = (int)$retryAfter;
             }
-            throw TouchQueFeatureException::fromResponse($errorMessage, $statusCode, $responseData);
+            throw TouchqueFeatureException::fromResponse($errorMessage, $statusCode, $responseData);
         }
 
         return $asText ? $body : $responseData;

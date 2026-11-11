@@ -1,15 +1,15 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\AgentKeys;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\TouchQueOrgAgent;
+use Touchque\AgentKeys;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\TouchqueOrgAgent;
 
 /**
- * An organization's AI agent on TouchQue SSO against the shared fake API's
+ * An organization's AI agent on Touchque SSO against the shared fake API's
  * /sso/token: its own key or its platform's token, a DPoP proof, and calls to
  * an app that checks the proof against the token's key.
  */
@@ -46,7 +46,7 @@ class OrgAgentTest extends TestCase
         $keys = AgentKeys::generate();
         $id = 'oagt_abcdefghijkmnpqrstuv';
         self::$api->post('/__test/org-agent', ['agentId' => $id, 'publicKey' => $keys['publicJwk'], 'audiences' => [self::APP], 'scopes' => ['invoices:read', 'payments:create']]);
-        $agent = new TouchQueOrgAgent(['agentId' => $id, 'privateKey' => $keys['privateJwk'], 'issuer' => self::$api->baseUrl]);
+        $agent = new TouchqueOrgAgent(['agentId' => $id, 'privateKey' => $keys['privateJwk'], 'issuer' => self::$api->baseUrl]);
         $token = $agent->getToken(['scope' => 'invoices:read']);
         $this->assertSame(['DPoP', 300, 'invoices:read'], [$token['tokenType'], $token['expiresIn'], $token['scope']]);
         $this->assertSame($token, $agent->getToken(['scope' => 'invoices:read']));
@@ -58,7 +58,7 @@ class OrgAgentTest extends TestCase
         try {
             $agent->getToken(['scope' => 'payments:refund']);
             $this->fail('expected invalid_scope');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame('invalid_scope', $e->getErrorCode());
         }
     }
@@ -68,11 +68,11 @@ class OrgAgentTest extends TestCase
         $id = 'oagt_bbbbbbbbbbbbbbbbbbbb';
         self::$api->post('/__test/org-agent', ['agentId' => $id, 'workload' => ['subject' => 'repo:acme/payments:ref:refs/heads/main', 'audience' => 'touchque'], 'audiences' => [self::APP], 'scopes' => ['invoices:read']]);
         $api = self::$api;
-        $agent = new TouchQueOrgAgent(['agentId' => $id, 'issuer' => $api->baseUrl, 'assertion' => static fn () => $api->post('/__test/workload-token', ['sub' => 'repo:acme/payments:ref:refs/heads/main', 'aud' => 'touchque'])['token']]);
+        $agent = new TouchqueOrgAgent(['agentId' => $id, 'issuer' => $api->baseUrl, 'assertion' => static fn () => $api->post('/__test/workload-token', ['sub' => 'repo:acme/payments:ref:refs/heads/main', 'aud' => 'touchque'])['token']]);
         [, $body] = $this->resource($agent->authorization('GET', $api->baseUrl . '/__test/resource'));
         $this->assertSame('workload', $body['via']);
-        $wrong = new TouchQueOrgAgent(['agentId' => $id, 'issuer' => $api->baseUrl, 'assertion' => static fn () => $api->post('/__test/workload-token', ['sub' => 'repo:evil/x', 'aud' => 'touchque'])['token']]);
-        $this->expectException(TouchQueAPIException::class);
+        $wrong = new TouchqueOrgAgent(['agentId' => $id, 'issuer' => $api->baseUrl, 'assertion' => static fn () => $api->post('/__test/workload-token', ['sub' => 'repo:evil/x', 'aud' => 'touchque'])['token']]);
+        $this->expectException(TouchqueAPIException::class);
         $wrong->getToken();
     }
 
@@ -81,7 +81,7 @@ class OrgAgentTest extends TestCase
         $keys = AgentKeys::generate();
         $id = 'oagt_cccccccccccccccccccc';
         self::$api->post('/__test/org-agent', ['agentId' => $id, 'publicKey' => $keys['publicJwk'], 'audiences' => [self::APP], 'scopes' => ['payments:create'], 'delegation' => ['token_exchange', 'ciba']]);
-        $agent = new TouchQueOrgAgent(['agentId' => $id, 'privateKey' => $keys['privateJwk'], 'issuer' => self::$api->baseUrl]);
+        $agent = new TouchqueOrgAgent(['agentId' => $id, 'privateKey' => $keys['privateJwk'], 'issuer' => self::$api->baseUrl]);
         $url = self::$api->baseUrl . '/__test/resource';
         $call = fn (string $t): array => $this->resource(['Authorization' => 'DPoP ' . $t, 'DPoP' => $agent->dpopProof('GET', $url, $t)])[1];
         $exchanged = $agent->exchangeToken('member:ada@acme.com');
@@ -91,7 +91,7 @@ class OrgAgentTest extends TestCase
         try {
             $agent->getConnectionToken('member:ada@acme.com', 'github');
             $this->fail('expected invalid_grant');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame('invalid_grant', $e->getErrorCode());
         }
 
@@ -116,14 +116,14 @@ class OrgAgentTest extends TestCase
         try {
             $agent->waitForMember($no);
             $this->fail('expected access_denied');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame('access_denied', $e->getErrorCode());
         }
     }
 
     public function testConfigurationMistakes(): void
     {
-        $this->expectException(TouchQueConfigException::class);
-        new TouchQueOrgAgent(['agentId' => 'oagt_abcdefghijkmnpqrstuv', 'issuer' => 'http://sso.example.com', 'assertion' => static fn () => 'x']);
+        $this->expectException(TouchqueConfigException::class);
+        new TouchqueOrgAgent(['agentId' => 'oagt_abcdefghijkmnpqrstuv', 'issuer' => 'http://sso.example.com', 'assertion' => static fn () => 'x']);
     }
 }

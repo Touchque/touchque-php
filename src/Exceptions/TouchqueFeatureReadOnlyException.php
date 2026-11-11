@@ -1,9 +1,9 @@
 <?php
 
-namespace TouchQue\Exceptions;
+namespace Touchque\Exceptions;
 
 /** `feature_read_only`: the feature is being turned off; reads work, changes are refused. */
-class TouchQueFeatureReadOnlyException extends TouchQueFeatureException
+class TouchqueFeatureReadOnlyException extends TouchqueFeatureException
 {
     protected const REASON = 'read_only';
 }

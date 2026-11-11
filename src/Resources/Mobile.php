@@ -1,25 +1,25 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Http\HttpClient;
-use TouchQue\Exceptions\TouchQueConfigException;
+use Touchque\Http\HttpClient;
+use Touchque\Exceptions\TouchqueConfigException;
 
 /**
- * TouchQue Mobile SDK, your backend's side: your own iOS/Android app is the
- * approver of your users (white-label); they never install the TouchQue app.
+ * Touchque Mobile SDK, your backend's side: your own iOS/Android app is the
+ * approver of your users (white-label); they never install the Touchque app.
  *
  * 1. A user signed in to your app turns approvals on: `createEnrollment()`
- *    gives a one-time token; your app hands it to the SDK (`TouchQue.enroll`).
+ *    gives a one-time token; your app hands it to the SDK (`Touchque.enroll`).
  * 2. Ask for approvals as always (`$tq->login->request()`, `start()`, the
  *    middleware...): they reach your app over the SDK's encrypted connection.
- * 3. TouchQue holds no push key of your app. For each request it sends you a
+ * 3. Touchque holds no push key of your app. For each request it sends you a
  *    signed MOBILE_PUSH webhook: verify it (`$tq->webhook`), then
  *    `Mobile::pushFromWebhook($event)` gives the APNs payload / FCM data to
  *    send with your own credentials.
  *
  *     $e = $tq->mobile->createEnrollment(['externalUsername' => $userId]);
- *     return ['enrollmentToken' => $e['enrollmentToken']];   // the app calls TouchQue.enroll(token)
+ *     return ['enrollmentToken' => $e['enrollmentToken']];   // the app calls Touchque.enroll(token)
  */
 class Mobile
 {
@@ -33,14 +33,14 @@ class Mobile
     /**
      * A one-time enrollment token for a user you signed in. Whoever spends it
      * becomes the user's approver, so authenticate the user first. Throws
-     * TouchQueAPIException `already_enrolled` (pass `replace => true`) or `account_frozen`.
+     * TouchqueAPIException `already_enrolled` (pass `replace => true`) or `account_frozen`.
      *
      * @param array $options externalUsername (required), replace, ttlSeconds
      */
     public function createEnrollment(array $options): array
     {
         if (empty($options['externalUsername'])) {
-            throw new TouchQueConfigException('mobile->createEnrollment() needs the user (externalUsername)');
+            throw new TouchqueConfigException('mobile->createEnrollment() needs the user (externalUsername)');
         }
         $body = ['externalUsername' => $options['externalUsername']];
         if (!empty($options['replace'])) {
@@ -69,7 +69,7 @@ class Mobile
     public function getDevice(string $deviceId): array
     {
         if ($deviceId === '') {
-            throw new TouchQueConfigException('mobile->getDevice() needs the device id');
+            throw new TouchqueConfigException('mobile->getDevice() needs the device id');
         }
         return $this->http->get('/mobile/devices/' . rawurlencode($deviceId))['device'];
     }
@@ -78,7 +78,7 @@ class Mobile
     public function removeDevice(string $deviceId): array
     {
         if ($deviceId === '') {
-            throw new TouchQueConfigException('mobile->removeDevice() needs the device id');
+            throw new TouchqueConfigException('mobile->removeDevice() needs the device id');
         }
         return $this->http->delete('/mobile/devices/' . rawurlencode($deviceId));
     }
@@ -90,7 +90,7 @@ class Mobile
     public function testPush(string $deviceId): array
     {
         if ($deviceId === '') {
-            throw new TouchQueConfigException('mobile->testPush() needs the device id');
+            throw new TouchqueConfigException('mobile->testPush() needs the device id');
         }
         return $this->http->post('/mobile/devices/' . rawurlencode($deviceId) . '/test-push', []);
     }
@@ -105,7 +105,7 @@ class Mobile
      *
      * @param array $changes iosAppIds, androidPackages, androidCerts ([package => [SHA-256 of its signing
      *                       certificate]]), attestation (off | optional | required), enrollTtlSeconds,
-     *                       apns (['keyId', 'teamId', 'topic', 'key' => the .p8 text, 'production']: TouchQue then
+     *                       apns (['keyId', 'teamId', 'topic', 'key' => the .p8 text, 'production']: Touchque then
      *                       sends the iOS push itself), fcm (['serviceAccount' => the JSON]: the Android push);
      *                       null removes a key. The keys are never shown back (settings()['push']).
      */
@@ -113,7 +113,7 @@ class Mobile
     {
         $unknown = array_diff(array_keys($changes), ['iosAppIds', 'androidPackages', 'androidCerts', 'attestation', 'enrollTtlSeconds', 'apns', 'fcm']);
         if ($unknown) {
-            throw new TouchQueConfigException('mobile->updateSettings(): unknown setting ' . implode(', ', $unknown));
+            throw new TouchqueConfigException('mobile->updateSettings(): unknown setting ' . implode(', ', $unknown));
         }
         return $this->http->put('/mobile/settings', $changes)['settings'];
     }

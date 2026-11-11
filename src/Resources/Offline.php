@@ -1,9 +1,9 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Http\HttpClient;
-use TouchQue\Exceptions\TouchQueAPIException;
+use Touchque\Http\HttpClient;
+use Touchque\Exceptions\TouchqueAPIException;
 
 /** Offline Sign — QR challenge / typed code approvals that work with the
  * phone offline (no internet on the device). */
@@ -95,7 +95,7 @@ class Offline
     }
 
     /**
-     * For checking typed time-based codes while your server cannot reach TouchQue (an outage):
+     * For checking typed time-based codes while your server cannot reach Touchque (an outage):
      * salted, slow digests of each user's next codes, never a key. Up to 1,000 users and 24,000 user-steps a call; `$steps` 1-480
      * (default 480, four hours) from `$fromStep` (default: the current 30-second step). Returns
      * `{ stepSeconds, fromStep, steps, notAfterStep, kdf, users: [{ externalUsername, fromStep, salt, digests }] }`
@@ -117,7 +117,7 @@ class Offline
 
     /**
      * Checks a typed code against one user's digests from `totpVerifiers()` without calling
-     * TouchQue. Returns the step the code belongs to (the current one or one either side), or
+     * Touchque. Returns the step the code belongs to (the current one or one either side), or
      * null. Accept each step once: remember the step you accepted for the user and refuse codes
      * for it or an older one. `$at`: Unix time (default now).
      */
@@ -157,7 +157,7 @@ class Offline
     {
         try {
             return $call();
-        } catch (TouchQueAPIException $err) {
+        } catch (TouchqueAPIException $err) {
             if ($err->getStatus() < 500) {
                 return [
                     'approved' => false,

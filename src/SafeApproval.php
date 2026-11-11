@@ -1,13 +1,13 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueConfigException;
+use Touchque\Exceptions\TouchqueConfigException;
 
 /**
- * Safe Guard approvals, checked without trusting TouchQue. The approver's phone decodes the raw
+ * Safe Guard approvals, checked without trusting Touchque. The approver's phone decodes the raw
  * Safe transaction itself and signs, with a P-256 key only its biometrics unlock, a 105-byte
- * approval that TouchQueSafeGuard checks on chain:
+ * approval that TouchqueSafeGuard checks on chain:
  *
  *   index (1) | expiresAt (8) | displayDigest (32) | r (32) | s (32)
  *
@@ -77,7 +77,7 @@ final class SafeApproval
     public static function message(string $purpose, $chainId, string $guard, string $safe, string $subject, $expiresAt, string $displayDigest): string
     {
         if (!isset(self::PURPOSES[$purpose])) {
-            throw new TouchQueConfigException("SafeApproval: purpose is 'approve' or 'schedule'.");
+            throw new TouchqueConfigException("SafeApproval: purpose is 'approve' or 'schedule'.");
         }
         return '0x' . bin2hex(
             self::MAGIC . chr(self::PURPOSES[$purpose]) . self::uint($chainId, 'chainId', 8, 32) . self::address($guard, 'guard')
@@ -101,7 +101,7 @@ final class SafeApproval
     }
 
     /**
-     * Checks a phone's Safe Guard approval the way TouchQueSafeGuard does, without trusting the
+     * Checks a phone's Safe Guard approval the way TouchqueSafeGuard does, without trusting the
      * server that relayed it. The key comes from the guard's approver list on chain: `x || y`
      * (128 hex characters) or `['x' => ..., 'y' => ...]`.
      *
@@ -259,11 +259,11 @@ final class SafeApproval
     {
         $tx = $target['tx'] ?? null;
         if (!is_array($tx)) {
-            throw new TouchQueConfigException("SafeApproval: pass ['chainId', 'safe', 'guard', 'tx' => ['to', 'value', 'data', 'operation', ..., 'nonce']].");
+            throw new TouchqueConfigException("SafeApproval: pass ['chainId', 'safe', 'guard', 'tx' => ['to', 'value', 'data', 'operation', ..., 'nonce']].");
         }
         $operation = $tx['operation'] ?? 0;
         if ($operation !== 0 && $operation !== 1) {
-            throw new TouchQueConfigException('SafeApproval: tx.operation must be 0 (call) or 1 (delegatecall).');
+            throw new TouchqueConfigException('SafeApproval: tx.operation must be 0 (call) or 1 (delegatecall).');
         }
         return [
             'chainId' => self::uint($target['chainId'] ?? null, 'chainId', 8, 32),
@@ -291,7 +291,7 @@ final class SafeApproval
     {
         $dec = is_int($value) && $value >= 0 ? (string) $value : (is_string($value) ? $value : '');
         if (!preg_match('/^(0|[1-9][0-9]*)$/', $dec)) {
-            throw new TouchQueConfigException("SafeApproval: $field must be a non-negative integer (a decimal string for large values).");
+            throw new TouchqueConfigException("SafeApproval: $field must be a non-negative integer (a decimal string for large values).");
         }
         $bytes = '';
         while ($dec !== '0') {
@@ -309,7 +309,7 @@ final class SafeApproval
             $dec = $quotient === '' ? '0' : $quotient;
         }
         if (strlen($bytes) > $maxBytes) {
-            throw new TouchQueConfigException("SafeApproval: $field is too large.");
+            throw new TouchqueConfigException("SafeApproval: $field is too large.");
         }
         return str_pad($bytes, $size, "\0", STR_PAD_LEFT);
     }
@@ -325,7 +325,7 @@ final class SafeApproval
     private static function address($value, string $field): string
     {
         if (!is_string($value) || !preg_match('/^0x[0-9a-fA-F]{40}$/', $value)) {
-            throw new TouchQueConfigException("SafeApproval: $field must be an address (0x and 40 hex characters).");
+            throw new TouchqueConfigException("SafeApproval: $field must be an address (0x and 40 hex characters).");
         }
         return hex2bin(substr($value, 2));
     }
@@ -334,7 +334,7 @@ final class SafeApproval
     private static function hex($value, string $field, ?int $size = null): string
     {
         if (!is_string($value) || !preg_match('/^0x([0-9a-fA-F]{2})*$/', $value) || ($size !== null && strlen($value) !== 2 + 2 * $size)) {
-            throw new TouchQueConfigException("SafeApproval: $field must be 0x-prefixed hex" . ($size !== null ? " of $size bytes." : '.'));
+            throw new TouchqueConfigException("SafeApproval: $field must be 0x-prefixed hex" . ($size !== null ? " of $size bytes." : '.'));
         }
         return (string) hex2bin(substr($value, 2));
     }
@@ -353,7 +353,7 @@ final class SafeApproval
     private static function approvals(array $approvals): array
     {
         if (count($approvals) < 1 || count($approvals) > 255) {
-            throw new TouchQueConfigException('SafeApproval: pass 1 to 255 approvals.');
+            throw new TouchqueConfigException('SafeApproval: pass 1 to 255 approvals.');
         }
         $out = [];
         foreach (array_values($approvals) as $i => $a) {

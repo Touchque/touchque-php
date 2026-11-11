@@ -1,14 +1,14 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueIdJagException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueIdJagException;
 
 /**
  * Cross App Access: Identity Assertion JWT Authorization Grants (ID-JAG,
  * draft-ietf-oauth-identity-assertion-authz-grant, an open standard). An
- * organization's identity provider (TouchQue SSO) decides which of its apps
+ * organization's identity provider (Touchque SSO) decides which of its apps
  * may reach which other service for its members; the app trades a member's ID
  * token for an ID-JAG there, then the ID-JAG for an access token at the other
  * service's authorization server, with no consent screen per member.
@@ -40,7 +40,7 @@ final class CrossAppAccess
     {
         $meta = McpAuth::getJson(rtrim($issuer, '/') . '/.well-known/openid-configuration');
         if (($meta['issuer'] ?? null) !== $issuer) {
-            throw new TouchQueConfigException("the identity provider's metadata does not match its issuer");
+            throw new TouchqueConfigException("the identity provider's metadata does not match its issuer");
         }
         return $meta;
     }
@@ -48,7 +48,7 @@ final class CrossAppAccess
     private static function postForm(string $url, array $form, ?array $basic): array
     {
         if (!self::safeUrl($url)) {
-            throw new TouchQueConfigException("{$url} must be an https URL");
+            throw new TouchqueConfigException("{$url} must be an https URL");
         }
         $headers = ['Accept: application/json', 'Content-Type: application/x-www-form-urlencoded'];
         if ($basic !== null) {
@@ -64,7 +64,7 @@ final class CrossAppAccess
         $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $data = is_string($raw) ? (json_decode($raw, true) ?? []) : [];
         if ($raw === false || $status >= 400) {
-            throw new TouchQueIdJagException((string)($data['error'] ?? 'server_error'), (string)($data['error_description'] ?? "{$url} answered {$status}"), $status ?: null);
+            throw new TouchqueIdJagException((string)($data['error'] ?? 'server_error'), (string)($data['error_description'] ?? "{$url} answered {$status}"), $status ?: null);
         }
         return $data;
     }
@@ -84,11 +84,11 @@ final class CrossAppAccess
         $endpoint = $o['tokenEndpoint'] ?? null;
         if (!$endpoint) {
             if (empty($o['issuer'])) {
-                throw new TouchQueConfigException('requestIdJag needs issuer or tokenEndpoint');
+                throw new TouchqueConfigException('requestIdJag needs issuer or tokenEndpoint');
             }
             $endpoint = self::discover($o['issuer'])['token_endpoint'] ?? null;
             if (!is_string($endpoint)) {
-                throw new TouchQueConfigException('the identity provider names no token_endpoint');
+                throw new TouchqueConfigException('the identity provider names no token_endpoint');
             }
         }
         $data = self::postForm($endpoint, [
@@ -97,7 +97,7 @@ final class CrossAppAccess
             'resource' => $o['resource'] ?? null, 'scope' => self::scopeText($o['scope'] ?? null),
         ], [$o['clientId'] ?? '', $o['clientSecret'] ?? '']);
         if (($data['issued_token_type'] ?? null) !== self::ID_JAG_TOKEN_TYPE || !is_string($data['access_token'] ?? null)) {
-            throw new TouchQueIdJagException('invalid_response', 'the identity provider did not answer with an ID-JAG');
+            throw new TouchqueIdJagException('invalid_response', 'the identity provider did not answer with an ID-JAG');
         }
         return ['assertion' => $data['access_token'], 'expiresIn' => $data['expires_in'] ?? null, 'scope' => $data['scope'] ?? null];
     }

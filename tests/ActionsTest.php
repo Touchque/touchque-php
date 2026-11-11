@@ -1,16 +1,16 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Touchque;
 
 /**
- * TouchQue Actions in the PHP SDK: every management call sends exactly what
+ * Touchque Actions in the PHP SDK: every management call sends exactly what
  * the shared vectors (fixtures/actions-api-vectors.json) say, against the
- * shared fake TouchQue API, signed like the real API.
+ * shared fake Touchque API, signed like the real API.
  */
 class ActionsTest extends TestCase
 {
@@ -28,12 +28,12 @@ class ActionsTest extends TestCase
         self::$api->close();
     }
 
-    private function client(): TouchQue
+    private function client(): Touchque
     {
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
-    private function call(TouchQue $tq, string $name, array $a)
+    private function call(Touchque $tq, string $name, array $a)
     {
         $acts = $tq->actions;
         switch ($name) {
@@ -121,7 +121,7 @@ class ActionsTest extends TestCase
             try {
                 $fn();
                 $this->fail("case $i did not throw");
-            } catch (TouchQueConfigException $e) {
+            } catch (TouchqueConfigException $e) {
                 $this->assertNotSame('', $e->getMessage());
             }
         }

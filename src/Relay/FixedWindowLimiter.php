@@ -1,10 +1,10 @@
 <?php
 
-namespace TouchQue\Relay;
+namespace Touchque\Relay;
 
 /**
  * Fixed-window rate limiter for RelayHandler's pre-auth routes. It protects
- * your own server (and your TouchQue quota) from scripted abuse of routes
+ * your own server (and your Touchque quota) from scripted abuse of routes
  * anyone on the internet can call.
  *
  * Options (all optional):

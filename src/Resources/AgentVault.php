@@ -1,13 +1,13 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Http\HttpClient;
+use Touchque\Http\HttpClient;
 
 /**
  * The token vault for your agents ($tq->agents->vault): after your own OAuth flow with a person,
- * deposit their tokens; TouchQue keeps them sealed and refreshes them, and the agents a connection
- * names get a short-lived access token (TouchQueAgent::getConnectionToken), never the refresh token.
+ * deposit their tokens; Touchque keeps them sealed and refreshes them, and the agents a connection
+ * names get a short-lived access token (TouchqueAgent::getConnectionToken), never the refresh token.
  */
 class AgentVault
 {

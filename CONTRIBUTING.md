@@ -26,7 +26,7 @@ skip themselves otherwise.
 2. Add tests. A behavior change without a test won't be merged.
 3. Update `CHANGELOG.md` (Keep a Changelog format) under `## [Unreleased]`.
 4. Keep code, comments, docs and error messages in English.
-5. Don't add a dependency to the SDK's core (only `TouchQue\Laravel\*` may
+5. Don't add a dependency to the SDK's core (only `Touchque\Laravel\*` may
    depend on a framework, and only as an optional suggest/require-dev).
 
 ## Pull requests

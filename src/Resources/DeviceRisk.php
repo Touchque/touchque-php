@@ -1,9 +1,9 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Http\HttpClient;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Http\HttpClient;
 
 /**
  * Device risk (a paid add-on, off until your workspace turns it on): a visitor
@@ -12,7 +12,7 @@ use TouchQue\Http\HttpClient;
  * The page identifies with `@touchque/web` (`deviceRisk.identify({ siteKey, purpose })`
  * gives `{ visitorId, requestId, confidence }`) and sends you the requestId.
  * Never trust the page's copy: read the identification here (`getEvent`) or
- * check it for an account (`check`). TouchQue keeps keyed hashes only, with a
+ * check it for an account (`check`). Touchque keeps keyed hashes only, with a
  * key of your workspace alone, and its risk engine decides.
  *
  * Every signal only ever asks for more: `stepUp` means an extra check on this
@@ -58,12 +58,12 @@ class DeviceRisk
      *
      * @param mixed   $requestId  the touchque_request_id form field (the script tag) or deviceRisk.identify's requestId, as it came
      * @param ?string $deviceRisk instead of $requestId: the page's report (deviceRisk.collect), relayed untouched
-     * @throws TouchQueConfigException when the event is unknown (a bug in your code, not the page).
+     * @throws TouchqueConfigException when the event is unknown (a bug in your code, not the page).
      */
     public function check($requestId, string $event = 'sign_in', ?string $externalUsername = null, ?string $clientIp = null, ?string $deviceRisk = null): array
     {
         if (!in_array($event, self::EVENTS, true)) {
-            throw new TouchQueConfigException('deviceRisk->check(): event must be one of ' . implode(', ', self::EVENTS));
+            throw new TouchqueConfigException('deviceRisk->check(): event must be one of ' . implode(', ', self::EVENTS));
         }
         $body = [];
         if (is_string($requestId) && $requestId !== '') {
@@ -105,7 +105,7 @@ class DeviceRisk
         if (array_key_exists('limit', $options)) {
             $limit = $options['limit'];
             if (!is_int($limit) || $limit < 1 || $limit > 100) {
-                throw new TouchQueConfigException('deviceRisk->searchEvents() limit must be 1 to 100');
+                throw new TouchqueConfigException('deviceRisk->searchEvents() limit must be 1 to 100');
             }
             $params['limit'] = $limit;
         }
@@ -123,7 +123,7 @@ class DeviceRisk
     public function getEvent(string $requestId): array
     {
         if (!preg_match(self::REQUEST_ID, $requestId)) {
-            throw new TouchQueConfigException('deviceRisk->getEvent() needs a requestId (dre_...)');
+            throw new TouchqueConfigException('deviceRisk->getEvent() needs a requestId (dre_...)');
         }
         return $this->http->get('/device-risk/events/' . rawurlencode($requestId));
     }

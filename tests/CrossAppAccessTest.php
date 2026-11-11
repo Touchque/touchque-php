@@ -1,14 +1,14 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\AgentCard;
-use TouchQue\AgentKeys;
-use TouchQue\CrossAppAccess;
-use TouchQue\Exceptions\TouchQueAgentCardException;
-use TouchQue\Exceptions\TouchQueIdJagException;
-use TouchQue\IdJagVerifier;
+use Touchque\AgentCard;
+use Touchque\AgentKeys;
+use Touchque\CrossAppAccess;
+use Touchque\Exceptions\TouchqueAgentCardException;
+use Touchque\Exceptions\TouchqueIdJagException;
+use Touchque\IdJagVerifier;
 
 /**
  * Cross App Access (ID-JAG) and A2A agent card signatures against the shared
@@ -42,7 +42,7 @@ class CrossAppAccessTest extends TestCase
         try {
             $fn();
             return 'accepted';
-        } catch (TouchQueIdJagException $e) {
+        } catch (TouchqueIdJagException $e) {
             return $e->getMessage();
         }
     }
@@ -55,7 +55,7 @@ class CrossAppAccessTest extends TestCase
         try {
             CrossAppAccess::requestIdJag(['issuer' => $idp, 'clientId' => 'tqapp_test', 'clientSecret' => 'wrong', 'idToken' => 'idtoken:ada', 'audience' => 'https://rs.example']);
             $this->fail('accepted');
-        } catch (TouchQueIdJagException $e) {
+        } catch (TouchqueIdJagException $e) {
             $this->assertSame(['invalid_client', 401], [$e->error, $e->status]);
         }
         $v = $this->verifier();
@@ -86,7 +86,7 @@ class CrossAppAccessTest extends TestCase
         try {
             $fn();
             return 'verified';
-        } catch (TouchQueAgentCardException $e) {
+        } catch (TouchqueAgentCardException $e) {
             return $e->error;
         }
     }

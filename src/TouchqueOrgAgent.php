@@ -1,26 +1,26 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueFeatureException;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueNetworkException;
-use TouchQue\Exceptions\TouchQueTimeoutException;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueFeatureException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueNetworkException;
+use Touchque\Exceptions\TouchqueTimeoutException;
 
 /**
- * An organization's AI agent on TouchQue SSO (Organization → AI agents in the
+ * An organization's AI agent on Touchque SSO (Organization → AI agents in the
  * dashboard): it gets 5-minute tokens for one of the organization's apps,
  * proving who it is with its own key (private_key_jwt) or with the token its
  * platform already gives it (GitHub Actions, GitLab, Google Cloud, Azure,
  * Kubernetes), and binds each token to a DPoP key made when it starts. The app
- * checks the token with TouchQue's JWKS and the DPoP proof on every call.
+ * checks the token with Touchque's JWKS and the DPoP proof on every call.
  *
- *     $agent = new TouchQueOrgAgent(['agentId' => 'oagt_...', 'privateKey' => getenv('TQ_ORG_AGENT_KEY')]);
+ *     $agent = new TouchqueOrgAgent(['agentId' => 'oagt_...', 'privateKey' => getenv('TQ_ORG_AGENT_KEY')]);
  *     $headers = $agent->authorization('GET', 'https://payments.acme.com/invoices', ['resource' => 'tqapp_...']);
  *
  *     // In a GitHub Actions job (permissions: id-token: write), with no key to store:
- *     $agent = new TouchQueOrgAgent(['agentId' => 'oagt_...', 'assertion' => TouchQueOrgAgent::githubActionsToken('touchque')]);
+ *     $agent = new TouchqueOrgAgent(['agentId' => 'oagt_...', 'assertion' => TouchqueOrgAgent::githubActionsToken('touchque')]);
  *
  * Acting for a member, when its admin allowed it (Organization → AI agents → Access):
  *
@@ -34,7 +34,7 @@ use TouchQue\Exceptions\TouchQueTimeoutException;
  *
  * ES256 keys use ext-openssl, Ed25519 keys ext-sodium.
  */
-class TouchQueOrgAgent
+class TouchqueOrgAgent
 {
     private string $agentId;
     private string $issuer;
@@ -61,7 +61,7 @@ class TouchQueOrgAgent
     {
         $agentId = $options['agentId'] ?? (getenv('TQ_ORG_AGENT_ID') ?: '');
         if (!preg_match('/^oagt_[a-z2-9]{20}$/', $agentId)) {
-            throw new TouchQueConfigException('Set TQ_ORG_AGENT_ID (or pass agentId): the oagt_... id from Organization → AI agents');
+            throw new TouchqueConfigException('Set TQ_ORG_AGENT_ID (or pass agentId): the oagt_... id from Organization → AI agents');
         }
         $this->agentId = $agentId;
         $this->issuer = rtrim($options['issuer'] ?? (getenv('TQ_SSO_URL') ?: 'https://sso.touchque.com'), '/');
@@ -69,17 +69,17 @@ class TouchQueOrgAgent
         $host = $parts['host'] ?? '';
         $local = in_array($host, ['localhost', '127.0.0.1', '::1', '[::1]'], true);
         if (($parts['scheme'] ?? '') !== 'https' && !(($parts['scheme'] ?? '') === 'http' && $local)) {
-            throw new TouchQueConfigException("Refusing a plaintext issuer for \"{$host}\": use https://");
+            throw new TouchqueConfigException("Refusing a plaintext issuer for \"{$host}\": use https://");
         }
         if (isset($options['assertion'])) {
             if (!is_callable($options['assertion'])) {
-                throw new TouchQueConfigException("assertion must be a callable returning the platform's token");
+                throw new TouchqueConfigException("assertion must be a callable returning the platform's token");
             }
             $this->assertionSource = $options['assertion'];
         } else {
             $privateKey = $options['privateKey'] ?? (getenv('TQ_ORG_AGENT_KEY') ?: null);
             if (!$privateKey) {
-                throw new TouchQueConfigException("Pass privateKey (or set TQ_ORG_AGENT_KEY), or assertion with the platform's token");
+                throw new TouchqueConfigException("Pass privateKey (or set TQ_ORG_AGENT_KEY), or assertion with the platform's token");
             }
             $this->loadKey($privateKey, $options['kid'] ?? null);
         }
@@ -99,13 +99,13 @@ class TouchQueOrgAgent
             $url = getenv('ACTIONS_ID_TOKEN_REQUEST_URL');
             $bearer = getenv('ACTIONS_ID_TOKEN_REQUEST_TOKEN');
             if (!$url || !$bearer) {
-                throw new TouchQueConfigException('Not in a GitHub Actions job with `permissions: id-token: write`');
+                throw new TouchqueConfigException('Not in a GitHub Actions job with `permissions: id-token: write`');
             }
             $ch = curl_init($url . (strpos($url, '?') === false ? '?' : '&') . 'audience=' . rawurlencode($audience));
             curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $bearer], CURLOPT_TIMEOUT_MS => 10000]);
             $data = json_decode((string)curl_exec($ch), true);
             if (!is_array($data) || empty($data['value'])) {
-                throw new TouchQueConfigException('GitHub gave no token');
+                throw new TouchqueConfigException('GitHub gave no token');
             }
             return $data['value'];
         };
@@ -137,7 +137,7 @@ class TouchQueOrgAgent
                 $this->key = openssl_pkey_get_private(AgentKeys::ecPem($d, AgentKeys::b64urlDecode($jwk['x']), AgentKeys::b64urlDecode($jwk['y'])));
                 $public = ['kty' => 'EC', 'crv' => 'P-256', 'x' => $jwk['x'], 'y' => $jwk['y']];
             } else {
-                throw new TouchQueConfigException('The agent key must be EC P-256 or Ed25519');
+                throw new TouchqueConfigException('The agent key must be EC P-256 or Ed25519');
             }
             $this->kid = $kid ?? (isset($jwk['kid']) ? (string)$jwk['kid'] : AgentKeys::thumbprint($public));
             return;
@@ -145,7 +145,7 @@ class TouchQueOrgAgent
         $key = is_string($privateKey) ? @openssl_pkey_get_private($privateKey) : false;
         $details = $key ? openssl_pkey_get_details($key) : false;
         if (!$details || ($details['ec']['curve_name'] ?? '') !== 'prime256v1') {
-            throw new TouchQueConfigException("privateKey must be the agent's private key: a JWK (array or JSON) or an EC P-256 PEM");
+            throw new TouchqueConfigException("privateKey must be the agent's private key: a JWK (array or JSON) or an EC P-256 PEM");
         }
         $this->keyAlg = 'ES256';
         $this->key = $key;
@@ -161,7 +161,7 @@ class TouchQueOrgAgent
             $sig = sodium_crypto_sign_detached($input, $key);
         } else {
             if (!openssl_sign($input, $der, $key, OPENSSL_ALGO_SHA256)) {
-                throw new TouchQueConfigException('Could not sign with the key');
+                throw new TouchqueConfigException('Could not sign with the key');
             }
             $sig = AgentKeys::derToRaw($der);
         }
@@ -195,7 +195,7 @@ class TouchQueOrgAgent
     private function post(string $path, array $fields, bool $dpop): array
     {
         $url = $this->issuer . $path;
-        $form = ['client_id' => $this->agentId, 'client_assertion_type' => TouchQueAgent::ASSERTION_TYPE, 'client_assertion' => $this->assertion($this->issuer . '/sso/token')];
+        $form = ['client_id' => $this->agentId, 'client_assertion_type' => TouchqueAgent::ASSERTION_TYPE, 'client_assertion' => $this->assertion($this->issuer . '/sso/token')];
         foreach ($fields as $k => $v) {
             if ($v !== null && $v !== '') {
                 $form[$k] = $v;
@@ -214,12 +214,12 @@ class TouchQueOrgAgent
         $error = curl_error($ch);
         $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         if ($error || $raw === false) {
-            throw new TouchQueNetworkException('Network error: ' . $error);
+            throw new TouchqueNetworkException('Network error: ' . $error);
         }
         $data = json_decode((string)$raw, true) ?? [];
         if ($status !== 200) {
             $data['code'] = $data['error'] ?? null;
-            throw TouchQueFeatureException::fromResponse($data['error_description'] ?? ($data['error'] ?? 'Unknown API Error'), $status, $data);
+            throw TouchqueFeatureException::fromResponse($data['error_description'] ?? ($data['error'] ?? 'Unknown API Error'), $status, $data);
         }
         return $data;
     }
@@ -262,10 +262,10 @@ class TouchQueOrgAgent
 
     /**
      * The token vault: a member's own access token at another service (Google, Microsoft 365, GitHub…)
-     * they connected on TouchQue, for a connection that names this agent:
+     * they connected on Touchque, for a connection that names this agent:
      * `['accessToken', 'tokenType' => 'Bearer', 'expiresIn' (null when the service does not say), 'scope', 'connection']`.
      * $subjectToken is the member's token, as for exchangeToken; $scope may only narrow what the member granted.
-     * TouchQue refreshes it; the refresh token never leaves. TouchQueAPIException invalid_grant: the member
+     * Touchque refreshes it; the refresh token never leaves. TouchqueAPIException invalid_grant: the member
      * has not connected it (or disconnected, or left).
      */
     public function getConnectionToken(string $subjectToken, string $connection, ?string $scope = null): array
@@ -285,7 +285,7 @@ class TouchQueOrgAgent
     /**
      * Asks to open a shared account (its key, from Organization → AI agents → Access) for a member:
      * `['askId', 'openUrl', 'status', 'expiresIn']`. The member opens openUrl in the browser where their
-     * TouchQue extension is paired; their phone approves with this agent named and the extension signs
+     * Touchque extension is paired; their phone approves with this agent named and the extension signs
      * in there. The agent never sees the password. $message (at most 64 characters) is shown marked unverified.
      */
     public function askToOpenSharedAccount(string $account, string $loginHint, ?string $message = null): array
@@ -332,7 +332,7 @@ class TouchQueOrgAgent
 
     /**
      * The member's answer (polling at the interval, slower when asked): the token once they approve;
-     * TouchQueAPIException access_denied or expired_token otherwise, TouchQueTimeoutException after it expired.
+     * TouchqueAPIException access_denied or expired_token otherwise, TouchqueTimeoutException after it expired.
      */
     public function waitForMember(array $request): array
     {
@@ -342,7 +342,7 @@ class TouchQueOrgAgent
             sleep($interval);
             try {
                 return self::tokenOf($this->post('/sso/token', ['grant_type' => 'urn:openid:params:grant-type:ciba', 'auth_req_id' => $request['authReqId']], true));
-            } catch (TouchQueAPIException $e) {
+            } catch (TouchqueAPIException $e) {
                 if ($e->getErrorCode() === 'authorization_pending') {
                     continue;
                 }
@@ -353,7 +353,7 @@ class TouchQueOrgAgent
                 throw $e;
             }
         }
-        throw new TouchQueTimeoutException('The member did not answer in time');
+        throw new TouchqueTimeoutException('The member did not answer in time');
     }
 
     /** The two headers for one call to the app: `['Authorization' => 'DPoP …', 'DPoP' => proof]`. */

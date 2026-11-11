@@ -1,6 +1,6 @@
 <?php
 
-namespace TouchQue\Relay;
+namespace Touchque\Relay;
 
 /**
  * In-process RateLimitStore. Only useful in a long-running worker (Swoole,

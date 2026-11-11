@@ -1,13 +1,13 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Http\HttpClient;
+use Touchque\Http\HttpClient;
 
 /** Action types ("LOGIN", "SEND_MONEY", …) — what a user is asked to
  * approve. Define them from code at start-up instead of clicking them into
  * the Dashboard. (Before 4.0 this was `$tq->actions`; `$tq->actions` is
- * TouchQue Actions now.) */
+ * Touchque Actions now.) */
 class ActionTypes
 {
     /** The Second Thought questions an action type can ask (at most two). */

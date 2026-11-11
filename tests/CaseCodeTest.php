@@ -1,15 +1,15 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Guard;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Guard;
+use Touchque\Touchque;
 
 /**
- * "Why?" case codes against the shared fake TouchQue API: every decision names
+ * "Why?" case codes against the shared fake Touchque API: every decision names
  * one, the step shows it with plain reasons, a refusal and the raw API error
  * carry it, and the silent check returns it. Same scenarios as the Node SDK.
  */
@@ -38,9 +38,9 @@ class CaseCodeTest extends TestCase
         self::$api->link(self::USER);
     }
 
-    private function client(): TouchQue
+    private function client(): Touchque
     {
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
     public function testANumberMatchedStepNamesItsCaseAndPlainReasons(): void
@@ -60,7 +60,7 @@ class CaseCodeTest extends TestCase
         try {
             $tq->login->request(self::USER, 'LOGIN');
             $this->fail('expected a refusal');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame(403, $e->getStatus());
             $this->assertSame('REF-USE', $e->getCaseCode());
         }

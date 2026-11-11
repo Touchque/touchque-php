@@ -1,13 +1,13 @@
 <?php
 
-namespace TouchQue\Exceptions;
+namespace Touchque\Exceptions;
 
 /**
  * An AI agent's approval ended without a usable approval: getStatus() is
  * rejected, blocked, revoked, expired, stale (approved too long ago) or
  * redeemed (already used).
  */
-class TouchQueApprovalException extends TouchQueException
+class TouchqueApprovalException extends TouchqueException
 {
     private string $approvalId;
     private string $status;
@@ -15,7 +15,7 @@ class TouchQueApprovalException extends TouchQueException
 
     public function __construct(string $approvalId, string $status, ?string $reason = null)
     {
-        parent::__construct("TouchQue: approval '{$approvalId}' is {$status}" . ($reason ? " ({$reason})" : ''));
+        parent::__construct("Touchque: approval '{$approvalId}' is {$status}" . ($reason ? " ({$reason})" : ''));
         $this->approvalId = $approvalId;
         $this->status = $status;
         $this->reason = $reason;

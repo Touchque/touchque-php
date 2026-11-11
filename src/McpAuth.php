@@ -1,21 +1,21 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueMcpAuthException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueMcpAuthException;
 
 /**
- * For an MCP server whose authorization server is TouchQue SSO (Organization
+ * For an MCP server whose authorization server is Touchque SSO (Organization
  * → MCP servers in the dashboard; issuer https://sso.touchque.com/mcp):
  *
  * - protectedResourceMetadata() is its RFC 9728 document, served at the paths
- *   metadataPaths() gives, so MCP clients find TouchQue and ask for a token
+ *   metadataPaths() gives, so MCP clients find Touchque and ask for a token
  *   for exactly this server;
  * - verify($method, $url, $headers) checks a request's token: signed by
- *   TouchQue (its JWKS), this issuer, audience = this server's URL (RFC 8707),
+ *   Touchque (its JWKS), this issuer, audience = this server's URL (RFC 8707),
  *   not expired, and for a DPoP-bound token a fresh proof for this request.
- *   TouchQueMcpAuthException carries the status (401, 403) and the
+ *   TouchqueMcpAuthException carries the status (401, 403) and the
  *   WWW-Authenticate header to send;
  * - requireTool($claims, $tool) refuses with 403 insufficient_scope naming
  *   the scope a tool needs, so the client asks the member for more.
@@ -25,7 +25,7 @@ use TouchQue\Exceptions\TouchQueMcpAuthException;
  *     try {
  *         $claims = $auth->verify($_SERVER['REQUEST_METHOD'], $url, getallheaders());
  *         $auth->requireTool($claims, $toolName);
- *     } catch (TouchQueMcpAuthException $e) {
+ *     } catch (TouchqueMcpAuthException $e) {
  *         http_response_code($e->status);
  *         header('WWW-Authenticate: ' . $e->wwwAuthenticate);
  *     }
@@ -47,13 +47,13 @@ class McpAuth
     private array $proofs = [];
 
     /**
-     * @param array $options issuer (TouchQue SSO's MCP issuer), resource (this server's URL),
+     * @param array $options issuer (Touchque SSO's MCP issuer), resource (this server's URL),
      *   tools (tool => scope), resourceName, clockSkew (seconds, 60), fetch (callable(string $url): array, for tests).
      */
     public function __construct(array $options)
     {
         if (empty($options['issuer']) || empty($options['resource'])) {
-            throw new TouchQueConfigException("McpAuth needs issuer (TouchQue SSO's MCP issuer) and resource (this server's URL)");
+            throw new TouchqueConfigException("McpAuth needs issuer (Touchque SSO's MCP issuer) and resource (this server's URL)");
         }
         $this->issuer = rtrim($options['issuer'], '/');
         $this->resource = $options['resource'];
@@ -105,7 +105,7 @@ class McpAuth
         $scheme = strtolower($parts[0]);
         $token = trim($parts[1] ?? '');
         if (!in_array($scheme, ['bearer', 'dpop'], true) || substr_count($token, '.') !== 2) {
-            throw $this->fail(401, 'missing_token', 'A TouchQue access token is required');
+            throw $this->fail(401, 'missing_token', 'A Touchque access token is required');
         }
         $claims = $this->claims($token);
         $jkt = $claims['cnf']['jkt'] ?? null;
@@ -142,7 +142,7 @@ class McpAuth
         $this->requireScope($claims, $this->tools[$tool]);
     }
 
-    private function fail(int $status, string $code, string $message, ?string $scope = null): TouchQueMcpAuthException
+    private function fail(int $status, string $code, string $message, ?string $scope = null): TouchqueMcpAuthException
     {
         $parts = ['resource_metadata="' . $this->metadataUrl() . '"'];
         if ($code !== 'missing_token') {
@@ -152,7 +152,7 @@ class McpAuth
                 $parts[] = "scope=\"{$scope}\"";
             }
         }
-        return new TouchQueMcpAuthException($status, $code, $message, 'Bearer ' . implode(', ', $parts));
+        return new TouchqueMcpAuthException($status, $code, $message, 'Bearer ' . implode(', ', $parts));
     }
 
     private static function part(string $text): array
@@ -174,7 +174,7 @@ class McpAuth
             throw $this->fail(401, 'invalid_token', 'The token is malformed');
         }
         if (($head['typ'] ?? '') !== 'at+jwt' || !in_array($head['alg'] ?? '', ['RS256', 'ES256'], true)) {
-            throw $this->fail(401, 'invalid_token', 'Not a TouchQue access token');
+            throw $this->fail(401, 'invalid_token', 'Not a Touchque access token');
         }
         try {
             $key = $this->keyFor((string)($head['kid'] ?? ''));

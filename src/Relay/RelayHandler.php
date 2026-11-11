@@ -1,19 +1,19 @@
 <?php
 
-namespace TouchQue\Relay;
+namespace Touchque\Relay;
 
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQuePasskeyRequiredError;
-use TouchQue\Exceptions\TouchQueRejectedException;
-use TouchQue\Exceptions\TouchQueTimeoutException;
-use TouchQue\Guard;
-use TouchQue\TouchQue;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchquePasskeyRequiredError;
+use Touchque\Exceptions\TouchqueRejectedException;
+use Touchque\Exceptions\TouchqueTimeoutException;
+use Touchque\Guard;
+use Touchque\Touchque;
 
 /**
  * Framework-agnostic relay: the routes a frontend (`@touchque/web`) needs for
  * classic push 2FA, offline codes and passkeys, so you don't hand-write them.
  * Same routes and behaviour as the Node SDK's `touchqueRouter`. For Laravel
- * use `TouchQue\Laravel\TouchQueRelay`; anywhere else call handle() with the
+ * use `Touchque\Laravel\TouchqueRelay`; anywhere else call handle() with the
  * path relative to where you mount it and send the RelayResponse.
  *
  *   POST   /enroll/start                    (auth required) -> generateSecret response
@@ -56,8 +56,8 @@ use TouchQue\TouchQue;
  *                   ('requestId' is absent for 'offline-totp'). Mutate $response (headers, status);
  *                   the handler sets the body.
  *   silentSignIn    bool|array — silent sign-ins for POST /login (default false). When on, a new sign-in
- *                   whose browser sent its device-bound key proof (X-TouchQue-Browser, added by
- *                   `@touchque/web` with `browserKey: true`) first asks TouchQue whether anything about it
+ *                   whose browser sent its device-bound key proof (X-Touchque-Browser, added by
+ *                   `@touchque/web` with `browserKey: true`) first asks Touchque whether anything about it
  *                   is new. If nothing is, it succeeds at once with no push (onAuthenticated gets
  *                   'via' => 'silent', 'requestId' => 'silent'; the answer's assurance.method is 'silent').
  *                   Otherwise, and on any error, the usual push starts and its approval makes the browser
@@ -67,7 +67,7 @@ use TouchQue\TouchQue;
  */
 class RelayHandler
 {
-    private TouchQue $tq;
+    private Touchque $tq;
     /** @var callable */
     private $getUserId;
     /** @var callable|null */
@@ -105,7 +105,7 @@ class RelayHandler
         'GET /passkey/credentials' => 'passkeyCredentials',
     ];
 
-    public function __construct(TouchQue $tq, array $options)
+    public function __construct(Touchque $tq, array $options)
     {
         if (!isset($options['getUserId']) || !is_callable($options['getUserId'])) {
             throw new \InvalidArgumentException('RelayHandler: the "getUserId" option is required and must be callable.');
@@ -133,7 +133,7 @@ class RelayHandler
 
         if ($this->getLoginUser === null && !self::$warnedPreAuth) {
             self::$warnedPreAuth = true;
-            $tq->log('warning', '[TouchQue] RelayHandler: POST /login takes the username from the request body'
+            $tq->log('warning', '[Touchque] RelayHandler: POST /login takes the username from the request body'
                 . ($this->offlineEnabled ? ', and so do the offline routes' : '; the offline routes are disabled until you set it')
                 . '. Set "getLoginUser" to bind them to your first factor (password step) so they cannot be used against arbitrary users.');
         }
@@ -187,7 +187,7 @@ class RelayHandler
             // one — no phone to lose), or a phone is ALREADY linked. Replacing a
             // linked phone must never happen from a plain session: that is exactly
             // how an attacker with a stolen password would swap in their own phone.
-            if ($error instanceof TouchQueAPIException && $error->getStatus() === 409) {
+            if ($error instanceof TouchqueAPIException && $error->getStatus() === 409) {
                 try {
                     $current = $this->tq->auth->getUser($userId);
                     if (!empty($current['used']) || !empty($current['deviceId'])) {
@@ -213,7 +213,7 @@ class RelayHandler
             $out = ['linked' => !empty($u['used']) && !empty($u['deviceId'])];
             return new RelayResponse(200, $out + self::pick($u, ['used', 'deviceId']));
         } catch (\Throwable $error) {
-            if ($error instanceof TouchQueAPIException && $error->getStatus() === 404) {
+            if ($error instanceof TouchqueAPIException && $error->getStatus() === 404) {
                 return new RelayResponse(200, ['linked' => false, 'used' => false, 'deviceId' => null]);
             }
             return self::relayError($error);
@@ -228,9 +228,9 @@ class RelayHandler
         if ($user instanceof RelayResponse) {
             return $user;
         }
-        // Same two-phase contract as Guard / TouchQueMiddleware: 202 with the step
+        // Same two-phase contract as Guard / TouchqueMiddleware: 202 with the step
         // (matching number / first-time QR / offline QR) until approved; the page
-        // re-sends with X-TouchQue-Token.
+        // re-sends with X-Touchque-Token.
         $input = Guard::inputFromHeaders($ctx['header']);
         $silent = Guard::silentInputFromHeaders($this->silentSignIn, $ctx['header']);
         $details = $this->getDetails !== null ? ($this->getDetails)($ctx['req']) : null;
@@ -283,7 +283,7 @@ class RelayHandler
     }
 
     // ── Offline Sign: QR challenge / typed code ───────────────────────────
-    // The username used for onAuthenticated is the one TouchQue returns for the
+    // The username used for onAuthenticated is the one Touchque returns for the
     // challenge/code, never the one in the request body.
 
     private function offlineChallenge(array $ctx): RelayResponse
@@ -453,7 +453,7 @@ class RelayHandler
         try {
             $r = $this->tq->webauthn->authenticateVerify(self::bodyString($ctx['body'], 'requestId'), self::bodyArray($ctx['body'], 'response'));
             $who = $r['externalUsername'] ?? null;
-            // Open the session only for the user TouchQue says was approved. A name sent by the
+            // Open the session only for the user Touchque says was approved. A name sent by the
             // browser is never trusted: anyone could approve their own request and claim to be someone else.
             if (!empty($r['success']) && $this->getLoginUser !== null && is_string($who)) {
                 $expected = ($this->getLoginUser)($ctx['req']);
@@ -491,7 +491,7 @@ class RelayHandler
             if (!$input['token']) {
                 try {
                     return new RelayResponse(200, $this->tq->webauthn->registerOptions($userId, true));
-                } catch (TouchQueAPIException $error) {
+                } catch (TouchqueAPIException $error) {
                     if ($error->getStatus() !== 403 || $error->getErrorCode() !== 'enrollment_approval_required') {
                         throw $error;
                     }
@@ -622,42 +622,42 @@ class RelayHandler
     {
         return new RelayResponse(403, [
             'error' => 'OFFLINE_REQUIRES_FIRST_FACTOR',
-            'message' => 'Offline sign-in is disabled: configure getLoginUser (or allowOfflineWithoutFirstFactor) on the TouchQue router.',
+            'message' => 'Offline sign-in is disabled: configure getLoginUser (or allowOfflineWithoutFirstFactor) on the Touchque router.',
         ]);
     }
 
     /** Same status-code mapping as the guard middleware — kept in sync with the Node SDK. */
     private function authResultError(\Throwable $error): RelayResponse
     {
-        if ($error instanceof TouchQueRejectedException) {
+        if ($error instanceof TouchqueRejectedException) {
             return new RelayResponse(403, ['error' => '2FA_REJECTED', 'message' => 'User rejected the 2FA request on their device.']);
         }
-        if ($error instanceof TouchQuePasskeyRequiredError) {
+        if ($error instanceof TouchquePasskeyRequiredError) {
             return new RelayResponse(409, ['error' => 'PASSKEY_REQUIRED', 'requestId' => $error->requestId, 'message' => 'Approve this sign-in with your passkey.']);
         }
-        if ($error instanceof TouchQueTimeoutException) {
+        if ($error instanceof TouchqueTimeoutException) {
             return new RelayResponse(408, ['error' => '2FA_TIMEOUT', 'message' => 'User did not respond to the 2FA request in time.']);
         }
-        // A client-range TouchQue error (e.g. 404 "no linked device") still carries
+        // A client-range Touchque error (e.g. 404 "no linked device") still carries
         // a useful status + message; only a network failure or an unexpected error is 503.
-        if ($error instanceof TouchQueAPIException && $error->getStatus() < 500) {
+        if ($error instanceof TouchqueAPIException && $error->getStatus() < 500) {
             $data = $error->getData() ?? [];
             return new RelayResponse($error->getStatus(), [
                 'error' => self::firstText([$data['error'] ?? null, $data['message'] ?? null, $error->getMessage()]) ?? 'request_failed',
             ]);
         }
-        $this->tq->log('error', '[TouchQue Relay Error] ' . get_class($error) . ': ' . $error->getMessage());
+        $this->tq->log('error', '[Touchque Relay Error] ' . get_class($error) . ': ' . $error->getMessage());
         return new RelayResponse(503, ['error' => '2FA_UNAVAILABLE', 'message' => 'The 2FA verification service is temporarily unavailable.']);
     }
 
     /**
-     * For plain relay routes (enroll, offline, passkey): a client-range TouchQue
-     * status is forwarded with its machine-readable code only — never TouchQue's
+     * For plain relay routes (enroll, offline, passkey): a client-range Touchque
+     * status is forwarded with its machine-readable code only — never Touchque's
      * internal message text — anything else becomes 502.
      */
     private static function relayError(\Throwable $error): RelayResponse
     {
-        if ($error instanceof TouchQueAPIException && $error->getStatus() < 500) {
+        if ($error instanceof TouchqueAPIException && $error->getStatus() < 500) {
             $data = $error->getData() ?? [];
             return new RelayResponse($error->getStatus(), [
                 'error' => self::firstText([$data['code'] ?? null, $data['error'] ?? null]) ?? 'request_failed',

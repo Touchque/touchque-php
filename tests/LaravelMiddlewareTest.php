@@ -1,12 +1,12 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Illuminate\Http\Request;
-use TouchQue\Config;
-use TouchQue\TouchQue;
-use TouchQue\Laravel\TouchQueMiddleware;
+use Touchque\Config;
+use Touchque\Touchque;
+use Touchque\Laravel\TouchqueMiddleware;
 use Illuminate\Http\JsonResponse;
 
 class LaravelMiddlewareTest extends TestCase
@@ -30,9 +30,9 @@ class LaravelMiddlewareTest extends TestCase
         self::$api?->close();
     }
 
-    private function client(): TouchQue
+    private function client(): Touchque
     {
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
     public function testFullFlowThroughMiddleware(): void
@@ -41,7 +41,7 @@ class LaravelMiddlewareTest extends TestCase
         self::$api->opts(['numberMatch' => true]);
         $tq = $this->client();
 
-        $middleware = new class ($tq) extends TouchQueMiddleware {
+        $middleware = new class ($tq) extends TouchqueMiddleware {
             protected function resolveUser(Request $request): ?string
             {
                 return $request->header('X-User');
@@ -65,7 +65,7 @@ class LaravelMiddlewareTest extends TestCase
 
         $request2 = Request::create('/transfer', 'POST', [], [], [], [], (string)json_encode(['amount' => 5]));
         $request2->headers->set('X-User', 'jane@acme.com');
-        $request2->headers->set('X-TouchQue-Token', $body['token']);
+        $request2->headers->set('X-Touchque-Token', $body['token']);
         $done = $middleware->handle($request2, $handler, 'SEND_MONEY');
         $this->assertSame(200, $done->getStatusCode());
         $this->assertTrue(json_decode($done->getContent(), true)['done']);
@@ -74,7 +74,7 @@ class LaravelMiddlewareTest extends TestCase
     public function testDetailsFromARequestMacroReachThePhone(): void
     {
         self::$api->link('mac@acme.com');
-        $middleware = new class ($this->client()) extends TouchQueMiddleware {
+        $middleware = new class ($this->client()) extends TouchqueMiddleware {
             protected function resolveUser(Request $request): ?string
             {
                 return 'mac@acme.com';
@@ -94,7 +94,7 @@ class LaravelMiddlewareTest extends TestCase
 
     public function testAnUnknownDetailsNameIsMisconfiguredNotApprovedWithoutDetails(): void
     {
-        $middleware = new class ($this->client()) extends TouchQueMiddleware {
+        $middleware = new class ($this->client()) extends TouchqueMiddleware {
             protected function resolveUser(Request $request): ?string
             {
                 return 'mac@acme.com';
@@ -108,7 +108,7 @@ class LaravelMiddlewareTest extends TestCase
     public function testNoUserIs401(): void
     {
         $tq = $this->client();
-        $middleware = new TouchQueMiddleware($tq);
+        $middleware = new TouchqueMiddleware($tq);
         $handler = fn (Request $r) => response()->json(['unreachable' => true]);
         $request = Request::create('/transfer', 'POST');
         $res = $middleware->handle($request, $handler, 'SEND_MONEY');

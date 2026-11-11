@@ -1,10 +1,10 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Http\HttpClient;
-use TouchQue\Resources\WebAuthn;
+use Touchque\Http\HttpClient;
+use Touchque\Resources\WebAuthn;
 
 class WebAuthnTest extends TestCase
 {

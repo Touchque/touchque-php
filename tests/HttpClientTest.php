@@ -1,11 +1,11 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Touchque;
 
 /** The HTTP client against a local server that only ever redirects (a wrong baseUrl). */
 class HttpClientTest extends TestCase
@@ -42,11 +42,11 @@ PHP;
 
     public function testARedirectIsAnErrorNotAnEmptySuccess(): void
     {
-        $tq = new TouchQue(new Config('tq_test_key', 'test_secret', $this->redirectingServer(301)));
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', $this->redirectingServer(301)));
         try {
             $tq->login->request('ayse@acme.com');
             $this->fail('a 301 answer must throw');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame(301, $e->getStatus());
             $this->assertStringContainsString('redirect', $e->getMessage());
         }

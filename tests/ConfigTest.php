@@ -1,10 +1,10 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueConfigException;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueConfigException;
 
 class ConfigTest extends TestCase
 {
@@ -18,7 +18,7 @@ class ConfigTest extends TestCase
 
     public function testApiKeyNotStartingWithTqThrows(): void
     {
-        $this->expectException(TouchQueConfigException::class);
+        $this->expectException(TouchqueConfigException::class);
         new Config('wrong_prefix', 'shh');
     }
 
@@ -31,7 +31,7 @@ class ConfigTest extends TestCase
 
     public function testRefusesPlaintextHttpToNonLocalhostHost(): void
     {
-        $this->expectException(TouchQueConfigException::class);
+        $this->expectException(TouchqueConfigException::class);
         new Config('tq_auth_x', 'shh', 'http://api.example.com');
     }
 
@@ -62,7 +62,7 @@ class ConfigTest extends TestCase
     {
         putenv('TQ_API_KEY');
         putenv('TQ_API_SECRET');
-        $this->expectException(TouchQueConfigException::class);
+        $this->expectException(TouchqueConfigException::class);
         new Config();
     }
 }

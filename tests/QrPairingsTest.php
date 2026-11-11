@@ -1,16 +1,16 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Resources\QrPairings;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Resources\QrPairings;
+use Touchque\Touchque;
 
 /**
- * QR pairing against the shared fake TouchQue API: register, the QR's text and
+ * QR pairing against the shared fake Touchque API: register, the QR's text and
  * hash, the phone's scan, a request for the phone that scanned, and refusals.
  * Same scenarios as the Node SDK's QrPairings tests.
  */
@@ -36,19 +36,19 @@ class QrPairingsTest extends TestCase
         }
     }
 
-    private function tq(): TouchQue
+    private function tq(): Touchque
     {
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
-    private function apiError(callable $call): TouchQueAPIException
+    private function apiError(callable $call): TouchqueAPIException
     {
         try {
             $call();
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             return $e;
         }
-        $this->fail('no TouchQueAPIException');
+        $this->fail('no TouchqueAPIException');
     }
 
     private function stored(): array
@@ -93,8 +93,8 @@ class QrPairingsTest extends TestCase
         ] as $call) {
             try {
                 $call();
-                $this->fail('no TouchQueConfigException');
-            } catch (TouchQueConfigException $e) {
+                $this->fail('no TouchqueConfigException');
+            } catch (TouchqueConfigException $e) {
                 $this->assertNotSame('', $e->getMessage());
             }
         }

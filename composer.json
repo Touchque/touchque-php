@@ -1,6 +1,6 @@
 {
   "name": "touchque-authenticator/php-sdk",
-  "description": "Official PHP SDK for TouchQue Authenticator (2FA/MFA, passkeys, adaptive auth)",
+  "description": "Official PHP SDK for Touchque Authenticator (2FA/MFA, passkeys, adaptive auth)",
   "type": "library",
   "license": "MIT",
   "homepage": "https://touchque.com",
@@ -9,7 +9,7 @@
   },
   "authors": [
     {
-      "name": "TouchQue",
+      "name": "Touchque",
       "email": "developer@touchque.com"
     }
   ],
@@ -23,17 +23,18 @@
     "illuminate/http": "^9.0 || ^10.0 || ^11.0"
   },
   "suggest": {
-    "illuminate/http": "For the Laravel middleware (TouchQue\\Laravel\\TouchQueMiddleware).",
-    "ext-openssl": "For ApprovalProof::verify (device-signed approval proofs)."
+    "illuminate/http": "For the Laravel middleware (Touchque\\Laravel\\TouchqueMiddleware).",
+    "ext-openssl": "For ApprovalProof::verify (device-signed approval proofs).",
+    "ext-sodium": "For Ed25519 agent keys and signatures (AgentKeys, AgentCard, TouchqueAgent, TouchqueOrgAgent, McpAuth)."
   },
   "autoload": {
     "psr-4": {
-      "TouchQue\\": "src/"
+      "Touchque\\": "src/"
     }
   },
   "autoload-dev": {
     "psr-4": {
-      "TouchQue\\Tests\\": "tests/"
+      "Touchque\\Tests\\": "tests/"
     }
   },
   "scripts": {

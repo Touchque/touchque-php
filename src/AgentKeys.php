@@ -1,10 +1,10 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueConfigException;
+use Touchque\Exceptions\TouchqueConfigException;
 
-/** Key helpers for AI agents (TouchQueAgent): new key pairs, RFC 7638 thumbprints. */
+/** Key helpers for AI agents (TouchqueAgent): new key pairs, RFC 7638 thumbprints. */
 final class AgentKeys
 {
     public static function b64url(string $bytes): string
@@ -45,7 +45,7 @@ final class AgentKeys
             $public = ['kty' => 'EC', 'crv' => 'P-256', 'x' => self::b64url($pad($ec['x'])), 'y' => self::b64url($pad($ec['y']))];
             $d = $pad($ec['d']);
         } else {
-            throw new TouchQueConfigException('alg must be ES256 or EdDSA');
+            throw new TouchqueConfigException('alg must be ES256 or EdDSA');
         }
         $kid = self::thumbprint($public);
         return [

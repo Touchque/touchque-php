@@ -1,8 +1,8 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Http\HttpClient;
+use Touchque\Http\HttpClient;
 
 /**
  * WebAuthn / FIDO2 (passkey) — a phishing-resistant approval path alongside the

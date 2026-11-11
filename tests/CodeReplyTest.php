@@ -1,14 +1,14 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\CodeReply;
-use TouchQue\Config;
-use TouchQue\TouchQue;
+use Touchque\CodeReply;
+use Touchque\Config;
+use Touchque\Touchque;
 
 /**
- * A code typed back on the phone against the shared fake TouchQue API, which seals it like the
+ * A code typed back on the phone against the shared fake Touchque API, which seals it like the
  * phone does: it opens only with the one-time key, for that request.
  */
 final class CodeReplyTest extends TestCase
@@ -28,7 +28,7 @@ final class CodeReplyTest extends TestCase
     public function testTheTypedCodeOpensOnlyWithTheOneTimeKeyForThatRequest(): void
     {
         self::$api->link('ayse@acme.com');
-        $tq = new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
         $key = CodeReply::newKey();
         $sent = $tq->login->request('ayse@acme.com', reply: ['kind' => 'code', 'key' => $key['publicKey'], 'channel' => 'sms', 'target' => '+**********26']);
         $this->assertArrayNotHasKey('reply', $tq->login->status($sent['requestId']));

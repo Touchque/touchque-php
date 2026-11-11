@@ -1,10 +1,10 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueException;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueException;
 
 /**
  * The headless step-up flow shared by every integration (Laravel, or your
@@ -66,11 +66,11 @@ class Steps
      * Starts an approval for `$action` — never waits.
      *
      * `$browserProof` (silent sign-ins): the browser's device-bound key proof
-     * (`X-TouchQue-Browser`), passed through untouched. Once the user approves,
-     * TouchQue knows this browser.
+     * (`X-Touchque-Browser`), passed through untouched. Once the user approves,
+     * Touchque knows this browser.
      */
     public static function start(
-        TouchQue $client,
+        Touchque $client,
         string $action,
         string $user,
         ?array $details = null,
@@ -82,7 +82,7 @@ class Steps
         ?array $context = null
     ): array {
         if ($user === '') {
-            throw new TouchQueConfigException('start() needs the user id');
+            throw new TouchqueConfigException('start() needs the user id');
         }
         $norm = self::normalizeDetails($details);
         try {
@@ -112,7 +112,7 @@ class Steps
                 $step['canary'] = $canary;
             }
             return $step;
-        } catch (TouchQueAPIException $err) {
+        } catch (TouchqueAPIException $err) {
             $code = $err->getErrorCode() ?? ($err->getData()['error'] ?? null);
             $why = $err->getCaseCode() !== null ? ['caseCode' => $err->getCaseCode()] : [];
             if ($err->getStatus() === 404 && ($code === 'device_not_linked' || stripos($err->getMessage(), 'linked device') !== false)) {
@@ -128,7 +128,7 @@ class Steps
                 return ['state' => 'rate_limited', 'retryAfter' => $err->getRetryAfter()] + $why;
             }
             if ($err->getStatus() === 400 && ($code === 'unknown_action' || stripos($err->getMessage(), 'invalid action type') !== false)) {
-                throw new TouchQueConfigException(
+                throw new TouchqueConfigException(
                     "Unknown action \"$action\". Create it once with \$client->actionTypes->define('$action') "
                     . 'or in the Dashboard (Action Types).'
                 );
@@ -145,7 +145,7 @@ class Steps
     }
 
     /** First-time linking. Never unlinks a phone: a secret is only re-issued when the account is confirmed NOT linked. */
-    private static function enrollStep(TouchQue $client, string $user): array
+    private static function enrollStep(Touchque $client, string $user): array
     {
         try {
             $gen = $client->auth->generateSecret($user);
@@ -153,14 +153,14 @@ class Steps
                 'qrCodeDataUrl' => $gen['qrCodeDataUrl'] ?? null, 'recoveryCodes' => $gen['recoveryCodes'] ?? null,
                 'expiresAt' => $gen['expiresAt'] ?? null,
             ]];
-        } catch (TouchQueAPIException $err) {
+        } catch (TouchqueAPIException $err) {
             if ($err->getStatus() !== 409) {
                 throw $err;
             }
             $current = null;
             try {
                 $current = $client->auth->getUser($user);
-            } catch (TouchQueAPIException $e) {
+            } catch (TouchqueAPIException $e) {
                 // unknown user: fall through to reset below
             }
             if ($current && (!empty($current['used']) || !empty($current['deviceId']))) {
@@ -200,7 +200,7 @@ class Steps
     private const STATE_MAP = ['PENDING' => 'waiting', 'CONFIRMED' => 'approved', 'REJECTED' => 'rejected', 'EXPIRED' => 'expired'];
 
     /** Current state of a started approval. */
-    public static function check(TouchQue $client, string $requestId): array
+    public static function check(Touchque $client, string $requestId): array
     {
         $s = $client->login->status($requestId);
         $state = ($s['status'] === 'PENDING' && !empty($s['requiresPasskey']))
@@ -214,11 +214,11 @@ class Steps
 
     /**
      * Uses an approved request exactly once and checks it is for THIS user,
-     * action and transaction. Throws TouchQueException if it was already
+     * action and transaction. Throws TouchqueException if it was already
      * used, not approved, or approved for something else.
      */
     public static function complete(
-        TouchQue $client,
+        Touchque $client,
         string $requestId,
         string $user,
         string $action,
@@ -230,7 +230,7 @@ class Steps
         $sameDetails = self::detailsDigest($details) === self::detailsDigest($res['details'] ?? []);
         $sameRef = ($res['referenceId'] ?? null) === ($referenceId ?? null);
         if (!$sameUser || ($res['type'] ?? null) !== $action || !$sameDetails || !$sameRef) {
-            throw new TouchQueException('TouchQue: this approval is for a different user, action or transaction.');
+            throw new TouchqueException('Touchque: this approval is for a different user, action or transaction.');
         }
         $approval = [
             'requestId' => $requestId,

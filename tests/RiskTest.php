@@ -1,12 +1,12 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Http\HttpClient;
-use TouchQue\Resources\Login;
-use TouchQue\Resources\Risk;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Http\HttpClient;
+use Touchque\Resources\Login;
+use Touchque\Resources\Risk;
 
 class RiskTest extends TestCase
 {
@@ -74,8 +74,8 @@ class RiskTest extends TestCase
         foreach ($cases as $i => $call) {
             try {
                 $call();
-                $this->fail("case $i: expected TouchQueConfigException");
-            } catch (TouchQueConfigException $e) {
+                $this->fail("case $i: expected TouchqueConfigException");
+            } catch (TouchqueConfigException $e) {
                 $this->assertStringStartsWith('risk->', $e->getMessage(), "case $i");
             }
         }

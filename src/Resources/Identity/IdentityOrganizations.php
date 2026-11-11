@@ -1,8 +1,8 @@
 <?php
 
-namespace TouchQue\Resources\Identity;
+namespace Touchque\Resources\Identity;
 
-use TouchQue\Http\HttpClient;
+use Touchque\Http\HttpClient;
 
 /** `$tq->identity->organizations`: business customers, their members and invitations. */
 class IdentityOrganizations extends IdentityCrud

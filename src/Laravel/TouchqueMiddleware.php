@@ -1,12 +1,12 @@
 <?php
 
-namespace TouchQue\Laravel;
+namespace Touchque\Laravel;
 
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use TouchQue\Guard;
-use TouchQue\TouchQue;
+use Touchque\Guard;
+use Touchque\Touchque;
 
 /**
  * Laravel: one line per protected route.
@@ -17,17 +17,17 @@ use TouchQue\TouchQue;
  * Register the alias in `bootstrap/app.php` (Laravel 11+) or
  * `app/Http/Kernel.php` (`$middlewareAliases`):
  *
- *     $middleware->alias(['touchque' => \TouchQue\Laravel\TouchQueMiddleware::class]);
+ *     $middleware->alias(['touchque' => \Touchque\Laravel\TouchqueMiddleware::class]);
  *
- * `TouchQue` is constructor-injected, so Laravel's container resolves it
+ * `Touchque` is constructor-injected, so Laravel's container resolves it
  * automatically — bind it once in a service provider:
  *
- *     $this->app->singleton(TouchQue::class, fn () => new TouchQue());
+ *     $this->app->singleton(Touchque::class, fn () => new Touchque());
  *
  * Until the user approves on their phone this answers
  * `202 {"touchque": step, "token": "..."}`. Your page shows the step in its
  * own design and sends the same request again with header
- * `X-TouchQue-Token: <token>`. Once approved the route runs ONCE, with
+ * `X-Touchque-Token: <token>`. Once approved the route runs ONCE, with
  * `$request->touchque` set to the approval.
  *
  * What the phone shows (an amount, a payee): put the name of a Request
@@ -44,20 +44,20 @@ use TouchQue\TouchQue;
  * `resolveUser()` to return whoever just passed your password check.
  *
  * Silent sign-ins (default off): with `silentSignIn` on, a new attempt whose
- * browser sent its device-bound key proof (`X-TouchQue-Browser`, added by
- * `@touchque/web` with `browserKey: true`) first asks TouchQue whether
+ * browser sent its device-bound key proof (`X-Touchque-Browser`, added by
+ * `@touchque/web` with `browserKey: true`) first asks Touchque whether
  * anything about it is new. If nothing is, the route runs at once with no
  * push (`touchque` approval with `assurance.method` `silent` and `reasons`).
  * Otherwise, and on any error, the usual push starts and its approval makes
  * the browser known. Turn it on in a subclass
  * (`protected $silentSignIn = true;`) or when binding the middleware:
  *
- *     $this->app->bind(TouchQueMiddleware::class, fn ($app) => new TouchQueMiddleware(
- *         $app->make(TouchQue::class), ['silentSignIn' => ['maxAgeSeconds' => 8 * 3600]]));
+ *     $this->app->bind(TouchqueMiddleware::class, fn ($app) => new TouchqueMiddleware(
+ *         $app->make(Touchque::class), ['silentSignIn' => ['maxAgeSeconds' => 8 * 3600]]));
  */
-class TouchQueMiddleware
+class TouchqueMiddleware
 {
-    private TouchQue $touchQue;
+    private Touchque $touchque;
 
     /**
      * Silent sign-ins: `false` (default), `true`, or `['maxAgeSeconds' => int]`
@@ -69,7 +69,7 @@ class TouchQueMiddleware
     protected $silentSignIn = false;
 
     /**
-     * For your TouchQue Actions only (`event.context`): a callable taking the
+     * For your Touchque Actions only (`event.context`): a callable taking the
      * Request and returning an array (roles, plan, amount…). Never shown on
      * the phone. Or override `resolveContext()`.
      *
@@ -78,16 +78,16 @@ class TouchQueMiddleware
     protected $context = null;
 
     /** @param array $options ['silentSignIn' => bool|array, 'context' => callable(Request): array] */
-    public function __construct(TouchQue $touchQue, array $options = [])
+    public function __construct(Touchque $touchque, array $options = [])
     {
-        $this->touchQue = $touchQue;
+        $this->touchque = $touchque;
         if (isset($options['context'])) {
             $this->context = $options['context'];
         }
         if (array_key_exists('silentSignIn', $options)) {
             $this->silentSignIn = $options['silentSignIn'];
         }
-        Guard::assertSilentSignInOption($this->silentSignIn, 'TouchQueMiddleware');
+        Guard::assertSilentSignInOption($this->silentSignIn, 'TouchqueMiddleware');
     }
 
     public function handle(Request $request, Closure $next, string $action, ?string $detailsMethod = null)
@@ -99,7 +99,7 @@ class TouchQueMiddleware
             // one; method_exists() does not see macros. A name that is neither must not approve
             // without the details the route meant the phone to show.
             if (!method_exists($request, $detailsMethod) && !$request::hasMacro($detailsMethod)) {
-                $this->touchQue->log('error', "[TouchQue] TouchQueMiddleware: the Request has no method or macro \"{$detailsMethod}\" for the details");
+                $this->touchque->log('error', "[Touchque] TouchqueMiddleware: the Request has no method or macro \"{$detailsMethod}\" for the details");
                 return new JsonResponse([
                     'touchque' => ['state' => 'blocked', 'reason' => 'misconfigured'],
                     'error' => ['code' => 'misconfigured', 'message' => 'Two-factor approval is not configured correctly.'],
@@ -113,7 +113,7 @@ class TouchQueMiddleware
         $silent = Guard::silentInputFromHeaders($this->silentSignIn, $header);
 
         $result = Guard::run(
-            $this->touchQue,
+            $this->touchque,
             $user,
             $action,
             $details,
@@ -159,7 +159,7 @@ class TouchQueMiddleware
         return $user->email ?? (method_exists($user, 'getAuthIdentifier') ? (string)$user->getAuthIdentifier() : null) ?? $user->username ?? null;
     }
 
-    /** What your TouchQue Actions get as `event.context` (default: the `context` option, or none). */
+    /** What your Touchque Actions get as `event.context` (default: the `context` option, or none). */
     protected function resolveContext(Request $request): ?array
     {
         return $this->context ? ($this->context)($request) : null;

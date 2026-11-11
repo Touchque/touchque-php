@@ -1,13 +1,13 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Touchque;
 
 /**
- * verify()'s onChallenge against the shared fake TouchQue API: the number
+ * verify()'s onChallenge against the shared fake Touchque API: the number
  * reaches the caller before the wait (the callback approves, so verify() could
  * not finish otherwise), and a callback that throws is logged while verify()
  * keeps waiting. Same scenarios as the Node SDK.
@@ -37,9 +37,9 @@ class VerifyChallengeTest extends TestCase
         self::$api->link(self::USER);
     }
 
-    private function client(): TouchQue
+    private function client(): Touchque
     {
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
     public function testOnChallengeGetsTheNumberBeforeTheWait(): void
@@ -76,7 +76,7 @@ class VerifyChallengeTest extends TestCase
             throw new \RuntimeException('screen gone');
         };
         try {
-            $logged = new TouchQue(new Config('tq_test_key', 'test_secret', $api->baseUrl, 10000, $logger));
+            $logged = new Touchque(new Config('tq_test_key', 'test_secret', $api->baseUrl, 10000, $logger));
             $result = $logged->login->verify(self::USER, 'SEND_MONEY', null, 5000, null, null, false, false, null, null, $throwing);
             // Silent by default: the same failure without a logger writes nothing.
             $this->client()->login->verify(self::USER, 'SEND_MONEY', null, 5000, null, null, false, false, null, null, $throwing);
@@ -86,7 +86,7 @@ class VerifyChallengeTest extends TestCase
 
         $this->assertTrue($result['approved']);
         $this->assertSame('47', $result['challengeCode']);
-        $this->assertSame([['warning', '[TouchQue] onChallenge failed: RuntimeException: screen gone']], $lines);
+        $this->assertSame([['warning', '[Touchque] onChallenge failed: RuntimeException: screen gone']], $lines);
         $this->assertSame('', (string)file_get_contents($log));
         unlink($log);
     }

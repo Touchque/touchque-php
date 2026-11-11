@@ -1,9 +1,9 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueIdJagException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueIdJagException;
 
 /**
  * Your authorization server, taking ID-JAGs (Cross App Access) from an
@@ -36,7 +36,7 @@ class IdJagVerifier
     public function __construct(array $options)
     {
         if (empty($options['issuer']) || empty($options['audience'])) {
-            throw new TouchQueConfigException("IdJagVerifier needs issuer (the identity provider) and audience (your authorization server's issuer)");
+            throw new TouchqueConfigException("IdJagVerifier needs issuer (the identity provider) and audience (your authorization server's issuer)");
         }
         $this->issuer = $options['issuer'];
         $this->audience = $options['audience'];
@@ -93,10 +93,10 @@ class IdJagVerifier
         return $this->keys[$kid] ?? null;
     }
 
-    /** The ID-JAG, checked and used once: its claims, or TouchQueIdJagException (error invalid_grant). */
+    /** The ID-JAG, checked and used once: its claims, or TouchqueIdJagException (error invalid_grant). */
     public function verify(string $assertion, string $clientId): array
     {
-        $bad = static fn (string $m) => new TouchQueIdJagException('invalid_grant', $m);
+        $bad = static fn (string $m) => new TouchqueIdJagException('invalid_grant', $m);
         $parts = explode('.', $assertion);
         if (count($parts) !== 3) {
             throw $bad('assertion is not a JWT');
@@ -116,7 +116,7 @@ class IdJagVerifier
         try {
             $jwk = $this->keyFor($head['kid']);
         } catch (\Throwable $e) {
-            throw new TouchQueIdJagException('temporarily_unavailable', "the identity provider's keys could not be read: " . $e->getMessage());
+            throw new TouchqueIdJagException('temporarily_unavailable', "the identity provider's keys could not be read: " . $e->getMessage());
         }
         if ($jwk === null || !McpAuth::verifySignature($parts[0] . '.' . $parts[1], AgentKeys::b64urlDecode($parts[2]), $alg, $jwk)) {
             throw $bad('signature does not verify');

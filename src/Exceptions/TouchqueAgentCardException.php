@@ -1,12 +1,12 @@
 <?php
 
-namespace TouchQue\Exceptions;
+namespace Touchque\Exceptions;
 
 /**
  * An A2A agent card that did not verify. $error is unsigned, malformed,
  * untrusted_key, invalid_signature or keys_unavailable.
  */
-class TouchQueAgentCardException extends TouchQueException
+class TouchqueAgentCardException extends TouchqueException
 {
     public string $error;
 

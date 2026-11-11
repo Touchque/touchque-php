@@ -1,16 +1,16 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Http\HttpClient;
-use TouchQue\Resources\Identity\IdentityClients;
-use TouchQue\Resources\Identity\IdentityCrud;
-use TouchQue\Resources\Identity\IdentityJobs;
-use TouchQue\Resources\Identity\IdentityOrganizations;
-use TouchQue\Resources\Identity\IdentityUsers;
+use Touchque\Http\HttpClient;
+use Touchque\Resources\Identity\IdentityClients;
+use Touchque\Resources\Identity\IdentityCrud;
+use Touchque\Resources\Identity\IdentityJobs;
+use Touchque\Resources\Identity\IdentityOrganizations;
+use Touchque\Resources\Identity\IdentityUsers;
 
 /**
- * TouchQue Login Management API (`$tq->identity`): your customers' accounts,
+ * Touchque Login Management API (`$tq->identity`): your customers' accounts,
  * roles, business-customer organizations, apps, APIs, connections and the
  * tenant itself, from your server with your workspace key.
  *
@@ -50,7 +50,7 @@ class Identity
         return $this->http->get('/identity/tenant');
     }
 
-    /** Turns TouchQue Login on (slug, displayName) or changes its settings. */
+    /** Turns Touchque Login on (slug, displayName) or changes its settings. */
     public function updateTenant(array $body): array
     {
         return $this->http->put('/identity/tenant', $body);
@@ -63,7 +63,7 @@ class Identity
 
     /**
      * The phone app the hosted pages tell customers to approve on ("Approve on the Acme app").
-     * null: your brand name when the Mobile SDK is set up, else TouchQue (`approverApp` in the tenant shows which).
+     * null: your brand name when the Mobile SDK is set up, else Touchque (`approverApp` in the tenant shows which).
      */
     public function setApproverAppName(?string $name): array
     {
@@ -124,7 +124,7 @@ class Identity
         return $this->http->put('/identity/delivery/' . rawurlencode($channel), $provider);
     }
 
-    /** Back to TouchQue's transport. */
+    /** Back to Touchque's transport. */
     public function removeDelivery(string $channel): array
     {
         return $this->http->delete('/identity/delivery/' . rawurlencode($channel));

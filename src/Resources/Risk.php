@@ -1,12 +1,12 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Http\HttpClient;
-use TouchQue\Exceptions\TouchQueConfigException;
+use Touchque\Http\HttpClient;
+use Touchque\Exceptions\TouchqueConfigException;
 
 /**
- * Silent sign-ins: ask TouchQue's risk engine whether a sign-in needs the
+ * Silent sign-ins: ask Touchque's risk engine whether a sign-in needs the
  * phone at all, and manage the browsers it knows for a user.
  *
  * A browser becomes known when the user approves a request on the phone (or
@@ -74,19 +74,19 @@ class Risk
      *   - type             (string) the action the user is about to do (default 'LOGIN'); a critical action always asks
      *   - clientIp         (string) the end user's IP, compared with the networks of earlier approved sign-ins
      *   - userAgent        (string)
-     *   - browserProof     (string) the browser's device-bound key proof (`X-TouchQue-Browser`), passed through untouched
+     *   - browserProof     (string) the browser's device-bound key proof (`X-Touchque-Browser`), passed through untouched
      *   - clientSignals    (string) the end user's page check from @touchque/web (startClientSignals()->encode()): software driving the browser is never silent
      *   - deviceRisk       (string) the page's device report from @touchque/web (deviceRisk.collect): a device signal is never silent
      *   - deviceRiskRequestId (string) the page's identification (deviceRisk.identify), preferred over deviceRisk
      *   - maxAgeSeconds    (int >= 0) your own limit on how long ago the last phone approval in this browser may be;
-     *                      0 = always ask. TouchQue never goes beyond its own limit (7 days).
-     *   - context          (array) for your TouchQue Actions only (`event.context`)
+     *                      0 = always ask. Touchque never goes beyond its own limit (7 days).
+     *   - context          (array) for your Touchque Actions only (`event.context`)
      * @return array{prompt: bool, reasons: array<int, array{code: string, text: string}>, assurance: string, silentMode: string}
      *   `reasons` codes: known_browser, recent_approval, same_phone, familiar_network, no_risk_signal (silent);
      *   no_browser_key, new_browser, approval_too_old, critical_action, risk_signal, silent_mode_shadow, … (asked).
      *   `silentMode` 'shadow': silent sign-ins are only measured, so `prompt` is always true.
      *
-     * @throws TouchQueConfigException when `externalUsername` is missing or an option is unknown or invalid.
+     * @throws TouchqueConfigException when `externalUsername` is missing or an option is unknown or invalid.
      */
     public function check(array $options): array
     {
@@ -98,7 +98,7 @@ class Risk
                 continue;
             }
             if (!is_string($options[$key])) {
-                throw new TouchQueConfigException("risk->check(): \"$key\" must be a string");
+                throw new TouchqueConfigException("risk->check(): \"$key\" must be a string");
             }
             if ($options[$key] !== '') {
                 $body[$key] = $options[$key];
@@ -106,13 +106,13 @@ class Risk
         }
         if (isset($options['maxAgeSeconds'])) {
             if (!is_int($options['maxAgeSeconds']) || $options['maxAgeSeconds'] < 0) {
-                throw new TouchQueConfigException('risk->check(): "maxAgeSeconds" must be an integer >= 0 (0 = always ask)');
+                throw new TouchqueConfigException('risk->check(): "maxAgeSeconds" must be an integer >= 0 (0 = always ask)');
             }
             $body['maxAgeSeconds'] = $options['maxAgeSeconds'];
         }
         if (isset($options['context'])) {
             if (!is_array($options['context'])) {
-                throw new TouchQueConfigException('risk->check(): "context" must be an array');
+                throw new TouchqueConfigException('risk->check(): "context" must be an array');
             }
             if ($options['context'] !== []) {
                 $body['context'] = $options['context'];
@@ -122,7 +122,7 @@ class Risk
     }
 
     /**
-     * The browsers TouchQue knows for a user (for an "approved browsers" list in
+     * The browsers Touchque knows for a user (for an "approved browsers" list in
      * your settings page): `['browsers' => [['thumbprint', 'label', 'createdAt',
      * 'lastMfaAt', 'lastMfaMethod', 'lastSeenAt', 'lastSilentAt'], ...]]`.
      *
@@ -150,7 +150,7 @@ class Risk
         $body = ['externalUsername' => $user];
         if (isset($options['thumbprint'])) {
             if (!is_string($options['thumbprint'])) {
-                throw new TouchQueConfigException('risk->forgetBrowsers(): "thumbprint" must be a string');
+                throw new TouchqueConfigException('risk->forgetBrowsers(): "thumbprint" must be a string');
             }
             if ($options['thumbprint'] !== '') {
                 $body['thumbprint'] = $options['thumbprint'];
@@ -163,7 +163,7 @@ class Risk
     {
         $user = $options['externalUsername'] ?? null;
         if (!is_string($user) || $user === '') {
-            throw new TouchQueConfigException("risk->$method() needs the user (externalUsername)");
+            throw new TouchqueConfigException("risk->$method() needs the user (externalUsername)");
         }
         return $user;
     }
@@ -173,7 +173,7 @@ class Risk
     {
         $unknown = array_diff(array_map('strval', array_keys($options)), $known);
         if ($unknown) {
-            throw new TouchQueConfigException("risk->$method(): unknown option(s) " . implode(', ', $unknown)
+            throw new TouchqueConfigException("risk->$method(): unknown option(s) " . implode(', ', $unknown)
                 . ' (options are camelCase: ' . implode(', ', $known) . ')');
         }
     }

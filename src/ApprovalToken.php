@@ -1,14 +1,14 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueApprovalMismatchException;
+use Touchque\Exceptions\TouchqueApprovalMismatchException;
 
 /**
  * What a partner's server checks before executing what an AI agent asked for:
  * the approval token's claims match the transaction (person, action type,
  * authorization details), and, offline, its ES256 signature against
- * TouchQue's keys (GET /agents/jwks.json).
+ * Touchque's keys (GET /agents/jwks.json).
  *
  * Matching rules (fixtures/agent-vectors.json): every expected field must be
  * equal, extra fields are ignored; amounts compare as decimals ("500" =
@@ -102,13 +102,13 @@ final class ApprovalToken
     public static function assertMatches(array $claims, array $expect = []): void
     {
         if (isset($expect['user']) && ($claims['sub'] ?? null) !== $expect['user']) {
-            throw new TouchQueApprovalMismatchException('TouchQue: the approval is for another person');
+            throw new TouchqueApprovalMismatchException('Touchque: the approval is for another person');
         }
         if (isset($expect['type']) && ($claims['type'] ?? null) !== $expect['type']) {
-            throw new TouchQueApprovalMismatchException('TouchQue: the approval is for another action type (' . ($claims['type'] ?? '') . ')');
+            throw new TouchqueApprovalMismatchException('Touchque: the approval is for another action type (' . ($claims['type'] ?? '') . ')');
         }
         if (isset($expect['authorizationDetails']) && !self::matches($claims['authorization_details'] ?? null, $expect['authorizationDetails'])) {
-            throw new TouchQueApprovalMismatchException('TouchQue: the approved details differ from what you are about to execute');
+            throw new TouchqueApprovalMismatchException('Touchque: the approved details differ from what you are about to execute');
         }
     }
 
@@ -117,12 +117,12 @@ final class ApprovalToken
     {
         $parts = explode('.', $token);
         if (count($parts) !== 3) {
-            throw new TouchQueApprovalMismatchException('TouchQue: not an approval token');
+            throw new TouchqueApprovalMismatchException('Touchque: not an approval token');
         }
         $header = json_decode(AgentKeys::b64urlDecode($parts[0]), true);
         $claims = json_decode(AgentKeys::b64urlDecode($parts[1]), true);
         if (!is_array($header) || !is_array($claims)) {
-            throw new TouchQueApprovalMismatchException('TouchQue: not an approval token');
+            throw new TouchqueApprovalMismatchException('Touchque: not an approval token');
         }
         return ['header' => $header, 'claims' => $claims];
     }
@@ -140,13 +140,13 @@ final class ApprovalToken
     public static function verifyWith(string $token, array $jwks, ?string $audience = null, array $expect = [], ?int $now = null): array
     {
         if ($audience === null || $audience === '') {
-            throw new TouchQueApprovalMismatchException("TouchQue: audience is required: your workspace's touchque:workspace:<id> (\$tq->agents->approvalAudience())");
+            throw new TouchqueApprovalMismatchException("Touchque: audience is required: your workspace's touchque:workspace:<id> (\$tq->agents->approvalAudience())");
         }
         $decoded = self::decode($token);
         $header = $decoded['header'];
         $claims = $decoded['claims'];
         if (($header['typ'] ?? '') !== 'touchque-approval+jwt' || ($header['alg'] ?? '') !== 'ES256') {
-            throw new TouchQueApprovalMismatchException('TouchQue: not an approval token (typ/alg)');
+            throw new TouchqueApprovalMismatchException('Touchque: not an approval token (typ/alg)');
         }
         $jwk = null;
         foreach ($jwks['keys'] ?? [] as $k) {
@@ -155,23 +155,23 @@ final class ApprovalToken
             }
         }
         if (!$jwk) {
-            throw new TouchQueApprovalMismatchException('TouchQue: signed by an unknown key');
+            throw new TouchqueApprovalMismatchException('Touchque: signed by an unknown key');
         }
         [$h, $p, $s] = explode('.', $token);
         $sig = AgentKeys::b64urlDecode($s);
         if (strlen($sig) !== 64 || openssl_verify("{$h}.{$p}", AgentKeys::rawToDer($sig), AgentKeys::ecPublicPem(AgentKeys::b64urlDecode($jwk['x']), AgentKeys::b64urlDecode($jwk['y'])), OPENSSL_ALGO_SHA256) !== 1) {
-            throw new TouchQueApprovalMismatchException('TouchQue: the signature does not verify');
+            throw new TouchqueApprovalMismatchException('Touchque: the signature does not verify');
         }
         $now = $now ?? time();
         if (!is_numeric($claims['exp'] ?? null) || $claims['exp'] + 30 < $now) {
-            throw new TouchQueApprovalMismatchException('TouchQue: the approval token expired');
+            throw new TouchqueApprovalMismatchException('Touchque: the approval token expired');
         }
         $aud = $claims['aud'] ?? null;
         if (!is_string($aud) || $aud === '') {
-            throw new TouchQueApprovalMismatchException('TouchQue: the approval token names no workspace');
+            throw new TouchqueApprovalMismatchException('Touchque: the approval token names no workspace');
         }
         if ($aud !== $audience) {
-            throw new TouchQueApprovalMismatchException('TouchQue: the approval token is for another workspace');
+            throw new TouchqueApprovalMismatchException('Touchque: the approval token is for another workspace');
         }
         self::assertMatches($claims, $expect);
         return $claims;

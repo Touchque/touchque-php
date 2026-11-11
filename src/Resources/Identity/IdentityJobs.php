@@ -1,8 +1,8 @@
 <?php
 
-namespace TouchQue\Resources\Identity;
+namespace Touchque\Resources\Identity;
 
-use TouchQue\Http\HttpClient;
+use Touchque\Http\HttpClient;
 
 /** `$tq->identity->imports` and `->exports`: bulk user moves running in the background. */
 class IdentityJobs

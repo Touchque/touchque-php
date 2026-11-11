@@ -1,6 +1,6 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
 /**
  * Verifies the device-signed proof of an approval ("what you see is what you
@@ -9,7 +9,7 @@ namespace TouchQue;
  * action type, the number-match code and a digest of the transaction details
  * the user was shown. The proof arrives in the SUCCESS webhook
  * (`approvalProof`) and in `login->status($id)['approvalProof']`. Verifying it
- * does not require trusting TouchQue: it proves the enrolled phone signed
+ * does not require trusting Touchque: it proves the enrolled phone signed
  * exactly these details. Needs ext-openssl.
  */
 final class ApprovalProof

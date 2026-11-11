@@ -1,14 +1,14 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Http\HttpClient;
-use TouchQue\Resources\Login;
-use TouchQue\Exceptions\TouchQueRejectedException;
-use TouchQue\Exceptions\TouchQueTimeoutException;
-use TouchQue\Exceptions\TouchQuePasskeyRequiredError;
-use TouchQue\Resources\Webhook;
+use Touchque\Http\HttpClient;
+use Touchque\Resources\Login;
+use Touchque\Exceptions\TouchqueRejectedException;
+use Touchque\Exceptions\TouchqueTimeoutException;
+use Touchque\Exceptions\TouchquePasskeyRequiredError;
+use Touchque\Resources\Webhook;
 
 class LoginTest extends TestCase
 {
@@ -103,7 +103,7 @@ class LoginTest extends TestCase
         $http->method('post')->willReturn(['requestId' => 'req_1']);
         $http->method('get')->willReturn(['status' => 'REJECTED']);
 
-        $this->expectException(TouchQueRejectedException::class);
+        $this->expectException(TouchqueRejectedException::class);
         (new Login($http))->verify('a@b.com');
     }
 
@@ -113,7 +113,7 @@ class LoginTest extends TestCase
         $http->method('post')->willReturn(['requestId' => 'req_1']);
         $http->method('get')->willReturn(['status' => 'EXPIRED']);
 
-        $this->expectException(TouchQueTimeoutException::class);
+        $this->expectException(TouchqueTimeoutException::class);
         (new Login($http))->verify('a@b.com');
     }
 
@@ -122,7 +122,7 @@ class LoginTest extends TestCase
         $http = $this->createMock(HttpClient::class);
         $http->method('post')->willReturn(['requestId' => 'req_1', 'requiresPasskey' => true]);
 
-        $this->expectException(\TouchQue\Exceptions\TouchQuePasskeyRequiredError::class);
+        $this->expectException(\Touchque\Exceptions\TouchquePasskeyRequiredError::class);
         (new Login($http))->verify('a@b.com');
     }
 
@@ -147,7 +147,7 @@ class LoginTest extends TestCase
         $http->method('post')->willReturn(['requestId' => 'req_1']);
         $http->method('get')->willReturn(['status' => 'PENDING']);
 
-        $this->expectException(TouchQueTimeoutException::class);
+        $this->expectException(TouchqueTimeoutException::class);
         (new Login($http))->verify('a@b.com', 'LOGIN', null, 0);
     }
 
@@ -172,8 +172,8 @@ class LoginTest extends TestCase
         $http->method('get')->willReturnOnConsecutiveCalls(['status' => 'PENDING'], ['status' => 'PENDING', 'requiresPasskey' => true]);
         try {
             (new Login($http))->verify('a@b.com');
-            $this->fail('expected TouchQuePasskeyRequiredError');
-        } catch (TouchQuePasskeyRequiredError $e) {
+            $this->fail('expected TouchquePasskeyRequiredError');
+        } catch (TouchquePasskeyRequiredError $e) {
             $this->assertSame('req_1', $e->requestId);
             $this->assertSame('step_up', $e->reason);
         }
@@ -203,7 +203,7 @@ class LoginTest extends TestCase
         $http = $this->createMock(HttpClient::class);
         $http->method('get')->willReturn(['status' => 'REJECTED']);
 
-        $this->expectException(TouchQueRejectedException::class);
+        $this->expectException(TouchqueRejectedException::class);
         (new Login($http))->waitForApproval('req_1', 5000, 1);
     }
 
@@ -212,7 +212,7 @@ class LoginTest extends TestCase
         $http = $this->createMock(HttpClient::class);
         $http->method('get')->willReturn(['status' => 'EXPIRED']);
 
-        $this->expectException(TouchQueTimeoutException::class);
+        $this->expectException(TouchqueTimeoutException::class);
         (new Login($http))->waitForApproval('req_1', 5000, 1);
     }
 
@@ -221,7 +221,7 @@ class LoginTest extends TestCase
         $http = $this->createMock(HttpClient::class);
         $http->method('get')->willReturn(['status' => 'PENDING']);
 
-        $this->expectException(TouchQueTimeoutException::class);
+        $this->expectException(TouchqueTimeoutException::class);
         (new Login($http))->waitForApproval('req_1', 5, 2);
     }
 
@@ -233,8 +233,8 @@ class LoginTest extends TestCase
             ->willReturnOnConsecutiveCalls(['status' => 'PENDING'], ['status' => 'PENDING', 'requiresPasskey' => true]);
         try {
             (new Login($http))->waitForApproval('req_1', 5000, 1);
-            $this->fail('expected TouchQuePasskeyRequiredError');
-        } catch (TouchQuePasskeyRequiredError $e) {
+            $this->fail('expected TouchquePasskeyRequiredError');
+        } catch (TouchquePasskeyRequiredError $e) {
             $this->assertSame('req_1', $e->requestId);
             $this->assertSame('step_up', $e->reason);
         }
@@ -245,7 +245,7 @@ class LoginTest extends TestCase
         $http = $this->createMock(HttpClient::class);
         $http->expects($this->never())->method('get');
 
-        $this->expectException(\TouchQue\Exceptions\TouchQueConfigException::class);
+        $this->expectException(\Touchque\Exceptions\TouchqueConfigException::class);
         (new Login($http))->waitForApproval('');
     }
 

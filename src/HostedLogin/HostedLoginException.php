@@ -1,11 +1,11 @@
 <?php
 
-namespace TouchQue\HostedLogin;
+namespace Touchque\HostedLogin;
 
-use TouchQue\Exceptions\TouchQueException;
+use Touchque\Exceptions\TouchqueException;
 
 /** A sign-in or token check failed; getErrorCode() is machine-readable. */
-class HostedLoginException extends TouchQueException
+class HostedLoginException extends TouchqueException
 {
     private string $errorCode;
     private ?string $description;

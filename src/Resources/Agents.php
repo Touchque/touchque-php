@@ -1,18 +1,18 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\ApprovalToken;
-use TouchQue\Exceptions\TouchQueApprovalMismatchException;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Http\HttpClient;
+use Touchque\ApprovalToken;
+use Touchque\Exceptions\TouchqueApprovalMismatchException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Http\HttpClient;
 
 /**
  * AI agents as identities of their own (`$tq->agents`): register an agent
  * with its PUBLIC key, give it an accountable owner and the action types it
  * may ask approvals for, suspend, revoke or stop every agent at once. The
  * agent itself never gets your API key: it signs in with its own key
- * (`TouchQue\TouchQueAgent`).
+ * (`Touchque\TouchqueAgent`).
  *
  *     $keys = AgentKeys::generate();                       // where the agent runs
  *     $agent = $tq->agents->create('Invoice bot', ['PAY_INVOICE'], ['publicKey' => $keys['publicJwk']]);
@@ -35,7 +35,7 @@ class Agents
     /**
      * Uses an agent's approval exactly once, right before you execute: checks
      * $expect (user, type, authorizationDetails) against the token first
-     * (nothing is used on a mismatch), then TouchQue checks the token and marks
+     * (nothing is used on a mismatch), then Touchque checks the token and marks
      * it used, and the answer is checked again.
      */
     public function redeemApproval(string $token, array $expect = []): array
@@ -55,7 +55,7 @@ class Agents
         if ($this->audience === null) {
             $audience = $this->http->get('/agents/approval-audience')['audience'] ?? null;
             if (!is_string($audience) || $audience === '') {
-                throw new TouchQueApprovalMismatchException("Touchque did not name this workspace's approval audience");
+                throw new TouchqueApprovalMismatchException("Touchque did not name this workspace's approval audience");
             }
             $this->audience = $audience;
         }
@@ -63,7 +63,7 @@ class Agents
     }
 
     /**
-     * Verifies an approval token offline (TouchQue's published keys, expiry,
+     * Verifies an approval token offline (Touchque's published keys, expiry,
      * aud, $expect). aud must be this workspace's: $audience defaults to
      * approvalAudience(), and a token without aud or for another workspace is
      * refused. It does not make the token single-use: redeemApproval does.
@@ -79,7 +79,7 @@ class Agents
         }
         try {
             return ApprovalToken::verifyWith($token, $this->jwks, $audience, $expect);
-        } catch (TouchQueApprovalMismatchException $e) {
+        } catch (TouchqueApprovalMismatchException $e) {
             if (strpos($e->getMessage(), 'unknown key') === false) {
                 throw $e;
             }
@@ -93,7 +93,7 @@ class Agents
     private static function publicOnly(array $jwk): array
     {
         if (array_key_exists('d', $jwk)) {
-            throw new TouchQueConfigException("Pass the agent's PUBLIC key: this one has private parts (d). The private key must stay where the agent runs.");
+            throw new TouchqueConfigException("Pass the agent's PUBLIC key: this one has private parts (d). The private key must stay where the agent runs.");
         }
         return $jwk;
     }

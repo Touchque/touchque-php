@@ -1,16 +1,16 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueSecurityEventException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueSecurityEventException;
 
 /**
  * Shared Signals (OpenID Shared Signals Framework 1.0): Security Event Tokens
  * (SETs, RFC 8417) an identity provider sends when something happens to a
  * person's account after sign-in: CAEP session-revoked, credential-change,
  * device-compliance-change; RISC account-disabled, credential-compromise.
- * TouchQue SSO sends them for an organization's members to the receivers its
+ * Touchque SSO sends them for an organization's members to the receivers its
  * admin adds (Organization > Continuous access). Your app ends the person's
  * sessions or asks them to sign in again.
  *
@@ -19,7 +19,7 @@ use TouchQue\Exceptions\TouchQueSecurityEventException;
  *   $v = new SecurityEventVerifier(['issuer' => 'https://sso.touchque.com', 'audience' => 'https://app.example.com']);
  *   try {
  *       $event = $v->verify(file_get_contents('php://input'));
- *   } catch (TouchQueSecurityEventException $e) {
+ *   } catch (TouchqueSecurityEventException $e) {
  *       http_response_code(400);
  *       echo json_encode(['err' => $e->error, 'description' => $e->getMessage()]);
  *       exit;
@@ -61,7 +61,7 @@ class SecurityEventVerifier
     public function __construct(array $options)
     {
         if (empty($options['issuer']) || empty($options['audience'])) {
-            throw new TouchQueConfigException("SecurityEventVerifier needs issuer (the transmitter) and audience (your stream's aud)");
+            throw new TouchqueConfigException("SecurityEventVerifier needs issuer (the transmitter) and audience (your stream's aud)");
         }
         $this->issuer = $options['issuer'];
         $this->audience = $options['audience'];
@@ -120,13 +120,13 @@ class SecurityEventVerifier
     /**
      * The SET, checked (signature RS256 with the issuer's keys, typ, issuer,
      * audience, one event): ['jti', 'issuer', 'audience' (list), 'issuedAt',
-     * 'txn' (TouchQue's case code), 'subject' (sub_id), 'type' (URI), 'name'
+     * 'txn' (Touchque's case code), 'subject' (sub_id), 'type' (URI), 'name'
      * (short name, or null), 'claims' (the event's own)], or
-     * TouchQueSecurityEventException.
+     * TouchqueSecurityEventException.
      */
     public function verify(string $token): array
     {
-        $bad = static fn (string $m) => new TouchQueSecurityEventException('invalid_request', $m);
+        $bad = static fn (string $m) => new TouchqueSecurityEventException('invalid_request', $m);
         $parts = explode('.', trim($token));
         if (count($parts) !== 3) {
             throw $bad('not a JWT');
@@ -140,22 +140,22 @@ class SecurityEventVerifier
             throw $bad('not a Security Event Token (typ secevent+jwt)');
         }
         if (($head['alg'] ?? null) !== 'RS256' || !is_string($head['kid'] ?? null)) {
-            throw new TouchQueSecurityEventException('invalid_key', 'unsupported signature');
+            throw new TouchqueSecurityEventException('invalid_key', 'unsupported signature');
         }
         try {
             $jwk = $this->keyFor($head['kid']);
         } catch (\Throwable $e) {
-            throw new TouchQueSecurityEventException('temporarily_unavailable', "the transmitter's keys could not be read: " . $e->getMessage());
+            throw new TouchqueSecurityEventException('temporarily_unavailable', "the transmitter's keys could not be read: " . $e->getMessage());
         }
         if ($jwk === null || !McpAuth::verifySignature($parts[0] . '.' . $parts[1], AgentKeys::b64urlDecode($parts[2]), 'RS256', $jwk)) {
-            throw new TouchQueSecurityEventException('invalid_key', 'signature does not verify');
+            throw new TouchqueSecurityEventException('invalid_key', 'signature does not verify');
         }
         if (($c['iss'] ?? null) !== $this->issuer) {
-            throw new TouchQueSecurityEventException('invalid_issuer', 'another issuer');
+            throw new TouchqueSecurityEventException('invalid_issuer', 'another issuer');
         }
         $aud = array_values(array_filter(is_array($c['aud'] ?? null) ? $c['aud'] : [$c['aud'] ?? null], 'is_string'));
         if (!in_array($this->audience, $aud, true)) {
-            throw new TouchQueSecurityEventException('invalid_audience', 'not for this receiver');
+            throw new TouchqueSecurityEventException('invalid_audience', 'not for this receiver');
         }
         if (!is_string($c['jti'] ?? null) || !is_int($c['iat'] ?? null)) {
             throw $bad('jti and iat are required');
@@ -188,10 +188,10 @@ class SecurityEventVerifier
         $scheme = parse_url($url, PHP_URL_SCHEME);
         $host = parse_url($url, PHP_URL_HOST);
         if ($scheme !== 'https' && !($scheme === 'http' && in_array($host, ['localhost', '127.0.0.1', '[::1]'], true))) {
-            throw new TouchQueConfigException("{$url} must be an https URL");
+            throw new TouchqueConfigException("{$url} must be an https URL");
         }
         if ($token === '') {
-            throw new TouchQueConfigException("poll needs the stream's token");
+            throw new TouchqueConfigException("poll needs the stream's token");
         }
         $body = [];
         foreach (['ack', 'setErrs', 'maxEvents', 'returnImmediately'] as $k) {
@@ -209,7 +209,7 @@ class SecurityEventVerifier
         $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $data = json_decode((string)$raw, true) ?? [];
         if ($raw === false || $status !== 200) {
-            throw new TouchQueSecurityEventException((string)($data['error'] ?? 'server_error'), "{$url} answered {$status}");
+            throw new TouchqueSecurityEventException((string)($data['error'] ?? 'server_error'), "{$url} answered {$status}");
         }
         return ['sets' => is_array($data['sets'] ?? null) ? $data['sets'] : [], 'moreAvailable' => ($data['moreAvailable'] ?? false) === true];
     }

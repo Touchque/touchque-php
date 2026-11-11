@@ -1,26 +1,26 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueNetworkException;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueNetworkException;
 
 /**
- * Framework-agnostic step-up guard. `TouchQue\Laravel\TouchQueMiddleware` is
+ * Framework-agnostic step-up guard. `Touchque\Laravel\TouchqueMiddleware` is
  * a thin wrapper over `Guard::run()`.
  *
- * Contract (same in every TouchQue server SDK):
+ * Contract (same in every Touchque server SDK):
  *   1st request            -> 202 {"touchque": step, "token": ...}   show the step in your UI
  *   repeat with the token   -> 202 while waiting, then the protected action runs once
  *   refused                 -> 403 / 408 / 423 / 429 {"touchque": {"state": ..., ...}}
  *
  * Request headers the browser sends back:
- *   X-TouchQue-Token         the token from the last response
- *   X-TouchQue-Offline: 1    switch to offline approval (phone has no internet)
- *   X-TouchQue-Code          the code from the phone (offline QR code, or with
- *   X-TouchQue-Code-Type: totp   the rolling time-based code)
- *   X-TouchQue-Browser       the browser's device-bound key proof (silent sign-ins,
+ *   X-Touchque-Token         the token from the last response
+ *   X-Touchque-Offline: 1    switch to offline approval (phone has no internet)
+ *   X-Touchque-Code          the code from the phone (offline QR code, or with
+ *   X-Touchque-Code-Type: totp   the rolling time-based code)
+ *   X-Touchque-Browser       the browser's device-bound key proof (silent sign-ins,
  *                            read only when the adapter's `silentSignIn` option is on)
  */
 class Guard
@@ -57,7 +57,7 @@ class Guard
 
     /**
      * The guard input an adapter adds for silent sign-ins: the
-     * `X-TouchQue-Browser` header, read only when the option is on.
+     * `X-Touchque-Browser` header, read only when the option is on.
      * Returns `['silentSignIn' => bool|array, 'browserProof' => ?string]`.
      *
      * @param bool|array|null $option the adapter's `silentSignIn` option
@@ -103,11 +103,11 @@ class Guard
      * (send that JSON body with that status code).
      *
      * Silent sign-ins: `$browserProof` is the browser's device-bound key proof
-     * (`X-TouchQue-Browser`), passed through untouched and attached to the
+     * (`X-Touchque-Browser`), passed through untouched and attached to the
      * push, so its approval makes the browser known. With `$silentSignIn`
      * (`true`, or `['maxAgeSeconds' => int]` for your own limit on the age of
      * the last phone approval; default `false`), a new attempt that carries a
-     * proof first asks TouchQue (`$tq->risk->check()`): when it answers exactly
+     * proof first asks Touchque (`$tq->risk->check()`): when it answers exactly
      * `prompt: false` the guard approves at once with no push (`assurance.method`
      * `silent`, `confirmedVia` `SILENT`, `requestId` `silent`, `reasons`).
      * Otherwise, and on any error, the usual push starts.
@@ -120,7 +120,7 @@ class Guard
      * 1.5 s poll the 6th poll was refused after 7.5 s).
      */
     public static function isStatusPoll(
-        TouchQue $client,
+        Touchque $client,
         ?string $user,
         string $action,
         ?array $details = null,
@@ -142,7 +142,7 @@ class Guard
     }
 
     public static function run(
-        TouchQue $client,
+        Touchque $client,
         ?string $user,
         string $action,
         ?array $details = null,
@@ -232,7 +232,7 @@ class Guard
                         $offlineStep['challengeCode'] = $ch['challengeCode'];
                     }
                     return $issue(['state' => 'offline', 'offline' => $offlineStep], ['rid' => $rid, 'n' => $ch['challengeCode'] ?? ($bound['n'] ?? null)]);
-                } catch (TouchQueAPIException $err) {
+                } catch (TouchqueAPIException $err) {
                     if ($err->getStatus() === 409 && ($err->getErrorCode() ?? ($err->getData()['error'] ?? null)) === 'request_rejected') {
                         return $issue(['state' => 'rejected', 'requestId' => $bound['rid'] ?? null, 'reason' => 'request_rejected']);
                     }
@@ -254,7 +254,7 @@ class Guard
                 if ($now['state'] === 'approved') {
                     try {
                         return ['status' => 200, 'approved' => Steps::complete($client, $bound['rid'], $user, $action, $details, $referenceId)];
-                    } catch (TouchQueAPIException $err) {
+                    } catch (TouchqueAPIException $err) {
                         if ($err->getStatus() === 409) {
                             return $issue(['state' => 'expired', 'reason' => $err->getErrorCode() ?? 'already_used']);
                         }
@@ -288,14 +288,14 @@ class Guard
                 }
             }
             return $issue(Steps::start($client, $action, $user, $norm ?: null, $referenceId, $ip, $userAgent, $enroll, $proof, $context));
-        } catch (TouchQueConfigException $err) {
-            $client->log('error', '[TouchQue] ' . $err->getMessage());
+        } catch (TouchqueConfigException $err) {
+            $client->log('error', '[Touchque] ' . $err->getMessage());
             return ['status' => 500, 'body' => [
                 'touchque' => ['state' => 'blocked', 'reason' => 'misconfigured'],
                 'error' => ['code' => 'misconfigured', 'message' => 'Two-factor approval is not configured correctly.'],
             ]];
-        } catch (TouchQueNetworkException | TouchQueAPIException $err) {
-            $client->log('error', '[TouchQue] approval failed: ' . Config::describe($err));
+        } catch (TouchqueNetworkException | TouchqueAPIException $err) {
+            $client->log('error', '[Touchque] approval failed: ' . Config::describe($err));
             return ['status' => 503, 'body' => [
                 'touchque' => ['state' => 'blocked', 'reason' => 'unavailable'],
                 'error' => ['code' => 'unavailable', 'message' => 'Two-factor approval is temporarily unavailable.'],
@@ -304,14 +304,14 @@ class Guard
     }
 
     /**
-     * Asks TouchQue whether this known browser may sign in without the phone.
+     * Asks Touchque whether this known browser may sign in without the phone.
      * Fails closed: only an answer of exactly `prompt: false` approves; any
      * error (network, 4xx, 5xx, a server without silent sign-ins, a bad
      * option) means "ask as usual".
      *
      * @param bool|array $silentSignIn
      */
-    private static function silentApproval(TouchQue $client, string $user, string $action, string $proof, ?string $ip, ?string $userAgent, $silentSignIn, ?array $context = null): ?array
+    private static function silentApproval(Touchque $client, string $user, string $action, string $proof, ?string $ip, ?string $userAgent, $silentSignIn, ?array $context = null): ?array
     {
         try {
             $options = ['externalUsername' => $user, 'type' => $action, 'clientIp' => $ip, 'userAgent' => $userAgent, 'browserProof' => $proof];
@@ -329,11 +329,11 @@ class Guard
                 'requestId' => 'silent', 'user' => $user, 'action' => $action,
                 'assurance' => ['phishingResistant' => false, 'method' => 'silent'],
                 'confirmedVia' => 'SILENT', 'approvalProof' => null,
-                // Nothing was sent to the phone; why TouchQue let this known browser in.
+                // Nothing was sent to the phone; why Touchque let this known browser in.
                 'reasons' => is_array($res['reasons'] ?? null) ? $res['reasons'] : [],
             ];
         } catch (\Throwable $err) {
-            $client->log('warning', '[TouchQue] silent sign-in check failed, asking the phone: ' . Config::describe($err));
+            $client->log('warning', '[Touchque] silent sign-in check failed, asking the phone: ' . Config::describe($err));
             return null;
         }
     }

@@ -1,9 +1,9 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Http\HttpClient;
-use TouchQue\Exceptions\TouchQueConfigException;
+use Touchque\Http\HttpClient;
+use Touchque\Exceptions\TouchqueConfigException;
 
 /**
  * Help desk: IT working on a person's account in the open.
@@ -47,11 +47,11 @@ class Assist
     {
         $unknown = array_diff(array_map('strval', array_keys($options)), self::OPEN_OPTIONS);
         if ($unknown) {
-            throw new TouchQueConfigException('assist->open(): unknown option(s) ' . implode(', ', $unknown)
+            throw new TouchqueConfigException('assist->open(): unknown option(s) ' . implode(', ', $unknown)
                 . ' (options are camelCase: ' . implode(', ', self::OPEN_OPTIONS) . ')');
         }
         if (empty($options['externalUsername']) || empty($options['agent']['name'])) {
-            throw new TouchQueConfigException('assist->open() needs externalUsername and agent.name');
+            throw new TouchqueConfigException('assist->open() needs externalUsername and agent.name');
         }
         return $this->http->post('/assist', $options);
     }
@@ -71,7 +71,7 @@ class Assist
     public function list(array $options): array
     {
         if (empty($options['externalUsername']) && empty($options['open'])) {
-            throw new TouchQueConfigException('assist->list() needs externalUsername or open => true');
+            throw new TouchqueConfigException('assist->list() needs externalUsername or open => true');
         }
         $params = [];
         if (!empty($options['externalUsername'])) {
@@ -88,7 +88,7 @@ class Assist
      * Asks the person's phone to confirm `$action` (`reset_2fa`, `reset_password`,
      * `activation_link`, `recovery_link`, `unlock`, `new_phone`, `remove_passkey`
      * or your own). Returns `requestId` and `challengeCode` (for the agent only).
-     * Throws TouchQueAPIException `no_phone`, `assist_not_open` or `rate_limited`.
+     * Throws TouchqueAPIException `no_phone`, `assist_not_open` or `rate_limited`.
      */
     public function verify(string $id, string $action, ?string $actionText = null, ?array $details = null): array
     {
@@ -151,7 +151,7 @@ class Assist
     {
         foreach ($values as $value) {
             if ($value === '') {
-                throw new TouchQueConfigException("assist->$method() needs $what");
+                throw new TouchqueConfigException("assist->$method() needs $what");
             }
         }
     }

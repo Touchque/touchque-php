@@ -1,10 +1,10 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\HostedLogin\HostedLogin;
-use TouchQue\HostedLogin\MyAccountException;
+use Touchque\HostedLogin\HostedLogin;
+use Touchque\HostedLogin\MyAccountException;
 
 /** My Account API client: the refresh-token trade, calls, the step-up answer. */
 class MyAccountTest extends TestCase

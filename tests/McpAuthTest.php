@@ -1,14 +1,14 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\AgentKeys;
-use TouchQue\Exceptions\TouchQueMcpAuthException;
-use TouchQue\McpAuth;
+use Touchque\AgentKeys;
+use Touchque\Exceptions\TouchqueMcpAuthException;
+use Touchque\McpAuth;
 
 /**
- * McpAuth (an MCP server whose authorization server is TouchQue SSO) against
+ * McpAuth (an MCP server whose authorization server is Touchque SSO) against
  * the shared fake API's MCP issuer: metadata, audience, issuer, expiry, scopes
  * per tool, DPoP-bound tokens and their proofs.
  */
@@ -37,11 +37,11 @@ class McpAuthTest extends TestCase
         return new McpAuth(['issuer' => self::$api->baseUrl . '/mcp-as', 'resource' => self::RESOURCE, 'tools' => ['search_tickets' => 'tickets:read', 'delete_ticket' => 'tickets:delete']]);
     }
 
-    private function refused(callable $fn): TouchQueMcpAuthException
+    private function refused(callable $fn): TouchqueMcpAuthException
     {
         try {
             $fn();
-        } catch (TouchQueMcpAuthException $e) {
+        } catch (TouchqueMcpAuthException $e) {
             return $e;
         }
         $this->fail('expected a refusal');

@@ -1,6 +1,6 @@
 <?php
 
-namespace TouchQue\Exceptions;
+namespace Touchque\Exceptions;
 
 /**
  * A refused Security Event Token (Shared Signals). $error is the RFC 8935
@@ -9,7 +9,7 @@ namespace TouchQue\Exceptions;
  * when the issuer's keys could not be read (answer 503: the transmitter
  * tries again).
  */
-class TouchQueSecurityEventException extends TouchQueException
+class TouchqueSecurityEventException extends TouchqueException
 {
     public string $error;
 

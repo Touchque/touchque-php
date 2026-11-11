@@ -1,23 +1,23 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueNetworkException;
-use TouchQue\Guard;
-use TouchQue\Http\HttpClient;
-use TouchQue\Laravel\TouchQueMiddleware;
-use TouchQue\Relay\RelayHandler;
-use TouchQue\Relay\RelayResponse;
-use TouchQue\Resources\Risk;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueNetworkException;
+use Touchque\Guard;
+use Touchque\Http\HttpClient;
+use Touchque\Laravel\TouchqueMiddleware;
+use Touchque\Relay\RelayHandler;
+use Touchque\Relay\RelayResponse;
+use Touchque\Resources\Risk;
+use Touchque\Touchque;
 
 /**
- * Silent sign-ins against the shared fake TouchQue API (a real, signed HTTP
+ * Silent sign-ins against the shared fake Touchque API (a real, signed HTTP
  * round trip): the risk resource, the proof on login requests, and the
  * guard / Laravel middleware / relay `silentSignIn` option. Same scenarios as
  * the Node SDK's silentSignIn tests.
@@ -28,7 +28,7 @@ class SilentSignInTest extends TestCase
     private const SILENT_CODES = ['known_browser', 'recent_approval', 'same_phone', 'familiar_network', 'no_risk_signal'];
 
     private static ?FakeApi $api = null;
-    /** The proof as the browser sends it in X-TouchQue-Browser (base64url JSON). */
+    /** The proof as the browser sends it in X-Touchque-Browser (base64url JSON). */
     private static string $proof;
     /** RFC 7638 thumbprint of that proof's key. */
     private static string $thumbprint;
@@ -60,9 +60,9 @@ class SilentSignInTest extends TestCase
         self::$api->link(self::USER);
     }
 
-    private function client(): TouchQue
+    private function client(): Touchque
     {
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
     private function paths(): array
@@ -81,7 +81,7 @@ class SilentSignInTest extends TestCase
     }
 
     /** Guard::run for a new attempt with the given proof and option. */
-    private function guard(TouchQue $tq, ?string $proof, $silentSignIn = true, string $action = 'LOGIN', ?string $token = null): array
+    private function guard(Touchque $tq, ?string $proof, $silentSignIn = true, string $action = 'LOGIN', ?string $token = null): array
     {
         return Guard::run($tq, self::USER, $action, null, null, '203.0.113.7', 'UA', $token, false, null, null, true, $proof, $silentSignIn);
     }
@@ -233,9 +233,9 @@ class SilentSignInTest extends TestCase
     {
         self::$api->opts(['silent' => true]); // the real answer would be silent
         $answers = [
-            new TouchQueNetworkException('network down'),
-            new TouchQueAPIException('not found', 404, ['error' => 'no route']),
-            new TouchQueAPIException('server error', 500, ['error' => 'boom']),
+            new TouchqueNetworkException('network down'),
+            new TouchqueAPIException('not found', 404, ['error' => 'no route']),
+            new TouchqueAPIException('server error', 500, ['error' => 'boom']),
             ['prompt' => 'false', 'reasons' => [], 'assurance' => 'high'],
             ['prompt' => 0, 'reasons' => []],
             ['prompt' => null],
@@ -296,20 +296,20 @@ class SilentSignInTest extends TestCase
         $this->assertSame(['silentSignIn' => true, 'browserProof' => self::$proof], Guard::silentInputFromHeaders(true, fn (string $name) => $name === Guard::BROWSER_HEADER ? self::$proof : null));
     }
 
-    // ── adapters read X-TouchQue-Browser only when silentSignIn is on ───
+    // ── adapters read X-Touchque-Browser only when silentSignIn is on ───
 
     private function laravelRequest(?string $proof): Request
     {
         $request = Request::create('/account', 'POST', [], [], [], ['REMOTE_ADDR' => '203.0.113.7']);
         if ($proof !== null) {
-            $request->headers->set('X-TouchQue-Browser', $proof);
+            $request->headers->set('X-Touchque-Browser', $proof);
         }
         return $request;
     }
 
-    private function middleware(TouchQue $tq, array $options): TouchQueMiddleware
+    private function middleware(Touchque $tq, array $options): TouchqueMiddleware
     {
-        return new class ($tq, $options) extends TouchQueMiddleware {
+        return new class ($tq, $options) extends TouchqueMiddleware {
             protected function resolveUser(Request $request): ?string
             {
                 return 'jane@acme.com';
@@ -338,7 +338,7 @@ class SilentSignInTest extends TestCase
         $this->assertSame('203.0.113.7', self::$api->lastCheck()['clientIp']);
 
         // A subclass can turn it on too.
-        $sub = new class ($this->client()) extends TouchQueMiddleware {
+        $sub = new class ($this->client()) extends TouchqueMiddleware {
             protected $silentSignIn = ['maxAgeSeconds' => 3600];
 
             protected function resolveUser(Request $request): ?string

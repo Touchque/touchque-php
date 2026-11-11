@@ -1,12 +1,12 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Touchque;
 
-/** $tq->identity (TouchQue Login Management API) against the shared fake API, which checks every signature. */
+/** $tq->identity (Touchque Login Management API) against the shared fake API, which checks every signature. */
 class IdentityTest extends TestCase
 {
     private static FakeApi $api;
@@ -23,7 +23,7 @@ class IdentityTest extends TestCase
 
     public function testCalls(): void
     {
-        $tq = new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
         $tq->identity->users->list(['q' => 'ayse', 'limit' => 10]);
         $tq->identity->users->create(['email' => 'a@x.com', 'passwordHash' => '$2b$10$abc']);
         $tq->identity->users->update('usr_1', ['appMetadata' => ['plan' => null]]);
@@ -85,7 +85,7 @@ class IdentityTest extends TestCase
     {
         // The API honours only the strings 'true' and 'false'; 1/0 would list everyone.
         self::$api->reset();
-        $tq = new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
         $tq->identity->users->list(['blocked' => true, 'emailVerified' => false]);
         $calls = self::$api->calls();
         $this->assertSame('GET /identity/users?blocked=true&emailVerified=false', $calls[0]['method'] . ' ' . $calls[0]['url']);

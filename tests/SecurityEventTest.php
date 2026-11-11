@@ -1,11 +1,11 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueSecurityEventException;
-use TouchQue\SecurityEventVerifier;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueSecurityEventException;
+use Touchque\SecurityEventVerifier;
 
 /**
  * Shared Signals SETs: the cross-SDK vectors (fixtures/security-event-vectors.json),
@@ -50,7 +50,7 @@ class SecurityEventTest extends TestCase
             try {
                 $this->verifier()->verify($v['token']);
                 $this->fail("{$v['name']} was accepted");
-            } catch (TouchQueSecurityEventException $e) {
+            } catch (TouchqueSecurityEventException $e) {
                 $this->assertSame($v['error'], $e->error, $v['name']);
             }
         }
@@ -114,7 +114,7 @@ PHP;
         try {
             $verifier->verify($v['valid'][0]['token']);
             $this->fail('another issuer was accepted');
-        } catch (TouchQueSecurityEventException $e) {
+        } catch (TouchqueSecurityEventException $e) {
             $this->assertSame('invalid_issuer', $e->error);
         }
     }
@@ -135,7 +135,7 @@ PHP;
         try {
             SecurityEventVerifier::poll("{$base}/ssf/poll/gone", 'tqssf_x');
             $this->fail('a 401 answer was accepted');
-        } catch (TouchQueSecurityEventException $e) {
+        } catch (TouchqueSecurityEventException $e) {
             $this->assertSame('authentication_failed', $e->error);
         }
     }
@@ -146,7 +146,7 @@ PHP;
             try {
                 SecurityEventVerifier::poll($url, $token);
                 $this->fail("{$url} was polled");
-            } catch (TouchQueConfigException $e) {
+            } catch (TouchqueConfigException $e) {
                 $this->addToAssertionCount(1);
             }
         }
@@ -166,7 +166,7 @@ PHP;
             try {
                 $verifier->verify($token);
                 $this->fail('keys over plain http were used');
-            } catch (TouchQueSecurityEventException $e) {
+            } catch (TouchqueSecurityEventException $e) {
                 $this->assertSame('temporarily_unavailable', $e->error);
                 $this->assertStringContainsString('http://keys.example/jwks must be an https URL', $e->getMessage());
             }

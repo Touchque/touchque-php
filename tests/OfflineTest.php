@@ -1,11 +1,11 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Http\HttpClient;
-use TouchQue\Resources\Offline;
-use TouchQue\Exceptions\TouchQueAPIException;
+use Touchque\Http\HttpClient;
+use Touchque\Resources\Offline;
+use Touchque\Exceptions\TouchqueAPIException;
 
 class OfflineTest extends TestCase
 {
@@ -27,7 +27,7 @@ class OfflineTest extends TestCase
     {
         $http = $this->createMock(HttpClient::class);
         $http->method('post')->willThrowException(
-            new TouchQueAPIException('invalid', 401, ['reason' => 'invalid_code', 'attemptsLeft' => 3])
+            new TouchqueAPIException('invalid', 401, ['reason' => 'invalid_code', 'attemptsLeft' => 3])
         );
 
         $result = (new Offline($http))->verify('c1', 'WRONG12');
@@ -38,9 +38,9 @@ class OfflineTest extends TestCase
     public function testVerifyRethrowsServerErrors(): void
     {
         $http = $this->createMock(HttpClient::class);
-        $http->method('post')->willThrowException(new TouchQueAPIException('boom', 500));
+        $http->method('post')->willThrowException(new TouchqueAPIException('boom', 500));
 
-        $this->expectException(TouchQueAPIException::class);
+        $this->expectException(TouchqueAPIException::class);
         (new Offline($http))->verify('c1', 'AAAA123');
     }
 
@@ -76,7 +76,7 @@ class OfflineTest extends TestCase
         $http->expects($this->once())
             ->method('post')
             ->with('/offline/totp/verify', $this->callback(fn ($b) => ($b['requestId'] ?? null) === 'req-1'))
-            ->willThrowException(new TouchQueAPIException('rejected', 410, ['reason' => 'request_rejected']));
+            ->willThrowException(new TouchqueAPIException('rejected', 410, ['reason' => 'request_rejected']));
 
         $result = (new Offline($http))->verifyTotp('a@b.com', 'ABCDEFG', 'LOGIN', null, 'req-1');
         $this->assertFalse($result['approved']);

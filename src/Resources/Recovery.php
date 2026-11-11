@@ -1,9 +1,9 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Http\HttpClient;
-use TouchQue\Exceptions\TouchQueConfigException;
+use Touchque\Http\HttpClient;
+use Touchque\Exceptions\TouchqueConfigException;
 
 /**
  * Never Locked Out: move a user whose phone is lost, dead or replaced to a
@@ -12,7 +12,7 @@ use TouchQue\Exceptions\TouchQueConfigException;
  * 1. Let users name colleagues who can vouch for them (`setVouchers()`),
  *    behind an approval on their phone.
  * 2. When the phone is gone, after the password (or your IdP): `start()`.
- *    Show `bindUri` as a QR for the TouchQue app on the new phone, then poll
+ *    Show `bindUri` as a QR for the Touchque app on the new phone, then poll
  *    `status()` and show each voucher's `code`: the user reads it to the
  *    colleague on a call, who types it on their own phone.
  * 3. After the cooling-off nobody vetoed, the account is on the new phone
@@ -60,7 +60,7 @@ class Recovery
         self::requireNonEmpty('setVouchers', 'externalUsername', $externalUsername);
         foreach ($vouchers as $v) {
             if (!is_string($v)) {
-                throw new TouchQueConfigException('recovery->setVouchers(): every voucher must be a string');
+                throw new TouchqueConfigException('recovery->setVouchers(): every voucher must be a string');
             }
         }
         return $this->http->post('/recovery/vouchers', ['externalUsername' => $externalUsername, 'vouchers' => array_values($vouchers)]);
@@ -68,7 +68,7 @@ class Recovery
 
     /**
      * Starts moving the user to a new phone. Call it only after the first
-     * factor. Throws TouchQueAPIException with error code `not_enough_vouchers`,
+     * factor. Throws TouchqueAPIException with error code `not_enough_vouchers`,
      * `recovery_in_progress`, `blocked`, `frozen` or `rate_limited`.
      *
      * @param array $options
@@ -83,12 +83,12 @@ class Recovery
     {
         $unknown = array_diff(array_map('strval', array_keys($options)), self::START_OPTIONS);
         if ($unknown) {
-            throw new TouchQueConfigException('recovery->start(): unknown option(s) ' . implode(', ', $unknown)
+            throw new TouchqueConfigException('recovery->start(): unknown option(s) ' . implode(', ', $unknown)
                 . ' (options are camelCase: ' . implode(', ', self::START_OPTIONS) . ')');
         }
         $user = $options['externalUsername'] ?? null;
         if (!is_string($user) || $user === '') {
-            throw new TouchQueConfigException('recovery->start() needs the user (externalUsername)');
+            throw new TouchqueConfigException('recovery->start() needs the user (externalUsername)');
         }
         $body = ['externalUsername' => $user];
         foreach (['clientIp', 'userAgent', 'displayName'] as $key) {
@@ -102,7 +102,7 @@ class Recovery
         foreach (['required', 'coolOffMinutes'] as $key) {
             if (isset($options[$key])) {
                 if (!is_int($options[$key]) || $options[$key] < 1) {
-                    throw new TouchQueConfigException("recovery->start(): \"$key\" must be a positive integer");
+                    throw new TouchqueConfigException("recovery->start(): \"$key\" must be a positive integer");
                 }
                 $body[$key] = $options[$key];
             }
@@ -137,7 +137,7 @@ class Recovery
             $params['open'] = 'true';
         }
         if (!$params) {
-            throw new TouchQueConfigException('recovery->list() needs externalUsername or open => true');
+            throw new TouchqueConfigException('recovery->list() needs externalUsername or open => true');
         }
         $res = $this->http->get('/recovery', $params);
         return isset($res['recoveries']) && is_array($res['recoveries']) ? array_values($res['recoveries']) : [];
@@ -160,7 +160,7 @@ class Recovery
     private static function requireNonEmpty(string $method, string $name, string $value): void
     {
         if ($value === '') {
-            throw new TouchQueConfigException("recovery->$method() needs $name");
+            throw new TouchqueConfigException("recovery->$method() needs $name");
         }
     }
 }

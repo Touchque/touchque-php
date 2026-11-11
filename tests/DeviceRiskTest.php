@@ -1,15 +1,15 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Resources\DeviceRisk;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Resources\DeviceRisk;
+use Touchque\Touchque;
 
 /**
- * Device risk against the shared fake TouchQue API: the report goes through
+ * Device risk against the shared fake Touchque API: the report goes through
  * untouched and the answer fails toward asking. Same scenarios as the Node
  * SDK's DeviceRisk tests.
  */
@@ -33,10 +33,10 @@ class DeviceRiskTest extends TestCase
         }
     }
 
-    private function tq(): TouchQue
+    private function tq(): Touchque
     {
         self::$api->reset();
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
     public function testCheckSendsTheReportAndReadsTheAnswer(): void
@@ -72,7 +72,7 @@ class DeviceRiskTest extends TestCase
 
     public function testAWrongEventFailsBeforeAnyRequest(): void
     {
-        $this->expectException(TouchQueConfigException::class);
+        $this->expectException(TouchqueConfigException::class);
         $this->tq()->deviceRisk->check('nope', 'tracking');
     }
 
@@ -126,7 +126,7 @@ class DeviceRiskTest extends TestCase
             $cursor = $page['nextCursor'];
         } while ($cursor);
         $this->assertSame(['dre_fakeEvent00000000003', 'dre_fakeEvent00000000002', 'dre_fakeEvent00000000001'], $seen);
-        $this->expectException(TouchQueConfigException::class);
+        $this->expectException(TouchqueConfigException::class);
         $this->tq()->deviceRisk->searchEvents(['limit' => 101]);
     }
 }

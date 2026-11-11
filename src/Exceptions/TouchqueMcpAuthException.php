@@ -1,13 +1,13 @@
 <?php
 
-namespace TouchQue\Exceptions;
+namespace Touchque\Exceptions;
 
 /**
  * McpAuth refused a request: answer with $status (401, 403) and the
  * WWW-Authenticate header in $wwwAuthenticate. $error is missing_token,
  * invalid_token, invalid_dpop_proof or insufficient_scope.
  */
-class TouchQueMcpAuthException extends TouchQueException
+class TouchqueMcpAuthException extends TouchqueException
 {
     public int $status;
     public string $error;

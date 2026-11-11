@@ -1,8 +1,8 @@
 <?php
 
-namespace TouchQue\Exceptions;
+namespace Touchque\Exceptions;
 
-class TouchQueException extends \Exception
+class TouchqueException extends \Exception
 {
     protected ?array $data;
 

@@ -1,10 +1,10 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\ApprovalProof;
-use TouchQue\Steps;
+use Touchque\ApprovalProof;
+use Touchque\Steps;
 
 /**
  * ApprovalProof::verify against the cross-SDK golden vectors

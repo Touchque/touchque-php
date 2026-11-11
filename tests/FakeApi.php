@@ -1,9 +1,9 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 /**
- * Spawns the shared Node fake TouchQue API (testing/fake-touchque-api.mjs)
+ * Spawns the shared Node fake Touchque API (testing/fake-touchque-api.mjs)
  * for contract tests: verifies this SDK's requests are signed exactly like the
  * real backend expects, using a real HTTP round trip (not mocks).
  */
@@ -92,7 +92,7 @@ class FakeApi
         $this->call('/__test/recovery', ['id' => $id, 'to' => $to]);
     }
 
-    /** TouchQue Actions: the dashboard's phone approval of a pending version. */
+    /** Touchque Actions: the dashboard's phone approval of a pending version. */
     public function approveVersion(string $slug, int $number): void
     {
         $this->call('/__test/approve-version', ['slug' => $slug, 'number' => $number]);

@@ -1,6 +1,6 @@
 <?php
 
-namespace TouchQue\Webhook;
+namespace Touchque\Webhook;
 
 /**
  * Storage for webhook `jti`s already accepted. checkAndSet() must atomically

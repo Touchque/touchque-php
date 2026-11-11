@@ -1,11 +1,11 @@
 <?php
 
-namespace TouchQue\Relay;
+namespace Touchque\Relay;
 
 /**
  * What RelayHandler wants sent back: an HTTP status, a JSON body and headers.
  * Framework adapters turn it into their own response (see
- * TouchQue\Laravel\TouchQueRelay); in plain PHP call send().
+ * Touchque\Laravel\TouchqueRelay); in plain PHP call send().
  *
  * `onAuthenticated` receives the pending success response and may change it
  * (e.g. addHeader('Set-Cookie', ...)); the handler sets the body afterwards.

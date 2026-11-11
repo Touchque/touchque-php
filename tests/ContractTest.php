@@ -1,16 +1,16 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Guard;
-use TouchQue\TouchQue;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueException;
+use Touchque\Config;
+use Touchque\Guard;
+use Touchque\Touchque;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueException;
 
 /**
- * Contract tests against the shared fake TouchQue API — a real HTTP round
+ * Contract tests against the shared fake Touchque API — a real HTTP round
  * trip, so request signing is verified too (not just mocked). Same
  * scenarios as the Node/Python SDKs' step-up tests.
  */
@@ -32,9 +32,9 @@ class ContractTest extends TestCase
         self::$api?->close();
     }
 
-    private function client(): TouchQue
+    private function client(): Touchque
     {
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
     public function testWaitingStepCarriesTheTelemetryToken(): void
@@ -78,7 +78,7 @@ class ContractTest extends TestCase
         $tq = $this->client();
         $step = $tq->start('SEND_MONEY', 'jane2@acme.com', ['Amount' => '250 EUR']);
         self::$api->approve($step['requestId']);
-        $this->expectException(TouchQueException::class);
+        $this->expectException(TouchqueException::class);
         $tq->complete($step['requestId'], 'jane2@acme.com', 'SEND_MONEY', ['Amount' => '9999 EUR']);
     }
 
@@ -86,7 +86,7 @@ class ContractTest extends TestCase
     {
         self::$api->link('jane3@acme.com');
         $tq = $this->client();
-        $this->expectException(TouchQueConfigException::class);
+        $this->expectException(TouchqueConfigException::class);
         $this->expectExceptionMessageMatches('/NOT_DEFINED/');
         $tq->start('NOT_DEFINED', 'jane3@acme.com');
     }

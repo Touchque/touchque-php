@@ -1,14 +1,14 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\HostedLogin\HostedLogin;
-use TouchQue\HostedLogin\HostedLoginException;
-use TouchQue\HostedLogin\MyAccount;
-use TouchQue\HostedLogin\MyAccountException;
+use Touchque\HostedLogin\HostedLogin;
+use Touchque\HostedLogin\HostedLoginException;
+use Touchque\HostedLogin\MyAccount;
+use Touchque\HostedLogin\MyAccountException;
 
-/** TouchQue Login client against an in-process fake tenant. */
+/** Touchque Login client against an in-process fake tenant. */
 class HostedLoginTest extends TestCase
 {
     private const ISSUER = 'https://acme.login.touchque.com';
@@ -118,7 +118,7 @@ class HostedLoginTest extends TestCase
         try {
             $login->waitForUser(['authReqId' => 'denied'] + $ask);
             $this->fail('expected access_denied');
-        } catch (\TouchQue\HostedLogin\HostedLoginException $e) {
+        } catch (\Touchque\HostedLogin\HostedLoginException $e) {
             $this->assertSame('access_denied', $e->getErrorCode());
         }
         $vaulted = $login->getConnectionToken('user-at', 'google', 'email');

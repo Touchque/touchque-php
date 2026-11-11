@@ -1,6 +1,6 @@
 <?php
 
-namespace TouchQue\Webhook;
+namespace Touchque\Webhook;
 
 /**
  * In-process ReplayCache. Only useful in a long-running worker (Swoole,

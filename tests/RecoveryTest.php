@@ -1,16 +1,16 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Resources\Recovery;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Resources\Recovery;
+use Touchque\Touchque;
 
 /**
- * Never Locked Out against the shared fake TouchQue API (a real, signed HTTP
+ * Never Locked Out against the shared fake Touchque API (a real, signed HTTP
  * round trip): vouchers, start, status, list and veto. Same scenarios as the
  * Node SDK's Recovery tests.
  */
@@ -42,9 +42,9 @@ class RecoveryTest extends TestCase
         }
     }
 
-    private function tq(): TouchQue
+    private function tq(): Touchque
     {
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
     public function testVouchersAreNamedAndSayWhoCanVouch(): void
@@ -81,7 +81,7 @@ class RecoveryTest extends TestCase
         try {
             $tq->recovery->start(['externalUsername' => 'ada@acme.com']);
             $this->fail('expected not_enough_vouchers');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame(409, $e->getStatus());
             $this->assertSame('not_enough_vouchers', $e->getErrorCode());
         }
@@ -105,7 +105,7 @@ class RecoveryTest extends TestCase
             try {
                 $call();
                 $this->fail('expected a config error');
-            } catch (TouchQueConfigException $e) {
+            } catch (TouchqueConfigException $e) {
                 $this->addToAssertionCount(1);
             }
         }

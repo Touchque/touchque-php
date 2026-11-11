@@ -1,6 +1,6 @@
 # touchque-authenticator/php-sdk
 
-The official PHP server SDK for [TouchQue](https://touchque.com) — biometric push
+The official PHP server SDK for [Touchque](https://touchque.com) — biometric push
 2FA, passkeys, and offline approval codes, added to any backend with one
 middleware line per route. Laravel adapter included.
 
@@ -17,23 +17,23 @@ composer require touchque-authenticator/php-sdk
 
 ## Setup
 
-Get an API key and secret from your [TouchQue Dashboard](https://dashboard.touchque.com):
+Get an API key and secret from your [Touchque Dashboard](https://dashboard.touchque.com):
 
 ```bash
 TQ_API_KEY=tq_auth_your_key
 TQ_API_SECRET=your_api_secret
 ```
 
-`new TouchQue()` with no arguments reads these from the environment.
+`new Touchque()` with no arguments reads these from the environment.
 
 ## Quick start (Laravel)
 
 ```php
 // bootstrap/app.php (Laravel 11+)
-$middleware->alias(['touchque' => \TouchQue\Laravel\TouchQueMiddleware::class]);
+$middleware->alias(['touchque' => \Touchque\Laravel\TouchqueMiddleware::class]);
 
 // a service provider
-$this->app->singleton(\TouchQue\TouchQue::class, fn () => new \TouchQue\TouchQue());
+$this->app->singleton(\Touchque\Touchque::class, fn () => new \Touchque\Touchque());
 ```
 
 ```php
@@ -46,15 +46,30 @@ Until the user approves on their phone, this answers
 **`202 {"touchque": step, "token": "..."}`** instead of running your
 controller. Your frontend renders `step` in its own UI (a matching number, or
 a QR code the first time the user links the app) and sends the same request
-again with header `X-TouchQue-Token: <token>` — see
+again with header `X-Touchque-Token: <token>` — see
 [`@touchque/web`](https://www.npmjs.com/package/@touchque/web), which does
 this loop for you in the browser. Once approved, the retried request reaches
 your controller exactly once, with `$request->attributes->get('touchque')`
 set to the approval.
 
 The signed-in user comes from Laravel's own auth (`$request->user()`). For a
-login route (no signed-in user yet), extend `TouchQueMiddleware` and override
+login route (no signed-in user yet), extend `TouchqueMiddleware` and override
 `resolveUser()` to return whoever just passed your password step.
+
+## Action types
+
+`'SEND_MONEY'` above is an action type: one kind of approval, with the title the phone shows and
+whether it is critical. Define each one once, in the dashboard (**Developers → Action types**)
+or from code:
+
+```php
+$tq->actionTypes->define('SEND_MONEY', 'Send money', null, true);   // type, name, description, critical
+```
+
+The guard refuses what is not ready. A name that is not defined is a setup error
+(`TouchqueConfigException`, "Unknown action …"): the guard answers 500 with `reason: 'misconfigured'`. A type
+turned off in the dashboard answers 403 with `reason: 'action_disabled'`, which stops that kind of
+approval at once, without a deploy.
 
 ## Relay routes for `@touchque/web`
 
@@ -68,22 +83,22 @@ controller once and register the routes:
 ```php
 // a service provider
 use Illuminate\Http\Request;
-use TouchQue\Laravel\TouchQueRelay;
-use TouchQue\Relay\RelayResponse;
+use Touchque\Laravel\TouchqueRelay;
+use Touchque\Relay\RelayResponse;
 
-$this->app->singleton(TouchQueRelay::class, fn ($app) => new TouchQueRelay($app->make(\TouchQue\TouchQue::class), [
+$this->app->singleton(TouchqueRelay::class, fn ($app) => new TouchqueRelay($app->make(\Touchque\Touchque::class), [
     // The user who already passed your password step. Binds POST /login and the
     // offline routes to them; the offline routes stay off (403) without it.
     'getLoginUser' => fn (Request $r) => $r->session()->get('password_verified_user'),
     'onAuthenticated' => function (Request $r, RelayResponse $res, array $info) {
         $r->session()->regenerate();
-        $r->session()->put('user', $info['externalUsername']); // the user TouchQue approved
+        $r->session()->put('user', $info['externalUsername']); // the user Touchque approved
     },
     // 'rateLimit' => ['store' => new MyRedisRateLimitStore($redis)],  // see below
 ]));
 
 // routes/web.php
-TouchQueRelay::routes(app('router'), 'touchque');
+TouchqueRelay::routes(app('router'), 'touchque');
 ```
 
 The signed-in user for enrollment and passkey management defaults to
@@ -91,7 +106,7 @@ The signed-in user for enrollment and passkey management defaults to
 Pre-auth routes are rate limited per IP and per username (20 / 5 per minute per
 route; `429 RATE_LIMITED` + `Retry-After`). The default counter store is in
 memory, which under PHP-FPM starts empty on every request: give it a shared
-store by implementing `TouchQue\Relay\RateLimitStore` over APCu or Redis, or
+store by implementing `Touchque\Relay\RateLimitStore` over APCu or Redis, or
 pass `'rateLimit' => false` and rate limit in front of the routes.
 
 Without Laravel, build a `RelayHandler` with the same options plus a required
@@ -103,9 +118,9 @@ it returns a `RelayResponse` (`getStatus()`, `getBody()`, `getHeaders()`,
 ## The three primitives, if you're not using Laravel
 
 ```php
-use TouchQue\TouchQue;
+use Touchque\Touchque;
 
-$tq = new TouchQue(); // from TQ_API_KEY / TQ_API_SECRET
+$tq = new Touchque(); // from TQ_API_KEY / TQ_API_SECRET
 
 $step = $tq->start('SEND_MONEY', 'jane@acme.com', ['Amount' => '250 EUR', 'To' => 'DE89...']);
 // $step['state']: 'waiting' (show $step['number']) | 'enroll' (show $step['enroll']['qrCodeDataUrl'])
@@ -124,7 +139,7 @@ and transaction, and can only be consumed once.
 
 Push approval and offline codes stop password reuse and push fatigue, but a
 real-time phishing proxy can still relay them. A passkey can't be phished —
-the browser signs your site's real origin, and TouchQue refuses any other
+the browser signs your site's real origin, and Touchque refuses any other
 (NIST SP 800-63B-4 §3.2.5). Register one via `$tq->webauthn` on the server and
 `@touchque/web`'s `passkeys.register()` in the browser; optionally require it
 for critical actions in the Dashboard's Security Policy.
@@ -154,23 +169,23 @@ verification.
 ## Webhooks
 
 ```php
-use TouchQue\Resources\Webhook;
+use Touchque\Resources\Webhook;
 
 try {
     $event = $tq->webhook->verify($request->getContent(), $request->header('X-Signature'));
-} catch (\TouchQue\Exceptions\TouchQueWebhookSignatureException $e) {
-    return response('', 403); // not from TouchQue
+} catch (\Touchque\Exceptions\TouchqueWebhookSignatureException $e) {
+    return response('', 403); // not from Touchque
 }
 if (($event['event'] ?? null) === Webhook::EVENT_APPROVAL_REVOKED) {
     endSessionsBuiltOn($event['requestId']);
 }
 ```
 
-Login results carry `status` (`SUCCESS` | `REJECTED`) and, when rejected, a `reason` (`TouchQue\Resources\Webhook::REASON_*`):
+Login results carry `status` (`SUCCESS` | `REJECTED`) and, when rejected, a `reason` (`Touchque\Resources\Webhook::REASON_*`):
 `user_rejected`, `user_reported_fraud`, `user_reported_coached` (the user said someone on the phone told
 them to approve), `risk_reversed`, `risk_step_up`, `approval_signature_invalid`, `device_integrity_failed`,
 `vishing_suspected` and `phishing_origin` (see Vishing Shield). Treat a reason you do not know as a rejection.
-Event webhooks carry `event` (`TouchQue\Resources\Webhook::EVENT_*`): `DEVICE_LINKED`, `DEVICE_UNLINKED`, `PASSKEY_REGISTERED`,
+Event webhooks carry `event` (`Touchque\Resources\Webhook::EVENT_*`): `DEVICE_LINKED`, `DEVICE_UNLINKED`, `PASSKEY_REGISTERED`,
 `PASSKEY_DELETED`, `APPROVAL_RECONFIRMED`, `APPROVAL_REVOKED`, `MOBILE_PUSH` (Mobile SDK), `RECOVERY_*` (Never Locked Out:
 `STARTED`, `DEVICE_BOUND`, `COOLING`, `COMPLETED`, `VETOED`, `EXPIRED`, `FAILED`) and `ASSIST_*` (help desk: `OPENED`, `ENDED`,
 `CHECK_PASSED`, `CHECK_FAILED`, `UNFROZEN`, `CLAIM_CONFIRMED`, `CLAIM_UNVERIFIED`). Ignore events you do not know.
@@ -186,13 +201,13 @@ keys (found from its `/.well-known/ssf-configuration`, https only), `typ`, issue
 Push delivery (RFC 8935): the SET is the request body (`application/secevent+jwt`).
 
 ```php
-use TouchQue\SecurityEventVerifier;
-use TouchQue\Exceptions\TouchQueSecurityEventException;
+use Touchque\SecurityEventVerifier;
+use Touchque\Exceptions\TouchqueSecurityEventException;
 
 $verifier = new SecurityEventVerifier(['issuer' => 'https://sso.touchque.com', 'audience' => 'https://app.example.com']);
 try {
     $event = $verifier->verify(file_get_contents('php://input'));
-} catch (TouchQueSecurityEventException $e) {
+} catch (TouchqueSecurityEventException $e) {
     // temporarily_unavailable: the keys could not be read; 503 makes the transmitter try again.
     http_response_code($e->error === 'temporarily_unavailable' ? 503 : 400);
     echo json_encode(['err' => $e->error, 'description' => $e->getMessage()]);
@@ -226,15 +241,15 @@ in `setErrs` (`[$jti => ['err' => ..., 'description' => ...]]`) instead of `ack`
 
 ## Vishing Shield (someone on the phone guiding the user)
 
-The phone tells TouchQue, signed with its hardware key, whether a call was active (or just ended), the screen
+The phone tells Touchque, signed with its hardware key, whether a call was active (or just ended), the screen
 was shared or the phone remote-controlled when the user tapped Approve. Depending on the server's mode:
 
 - **Passkey instead.** A user with a passkey finishes in the browser: the request stays open and turns into
   `passkey_required` mid-flight. The step-up flow and the relay handle it; the blocking `$tq->login->verify()` throws
-  `TouchQuePasskeyRequiredError` (`$e->reason === 'step_up'`). No offline or recovery code can finish such a request.
+  `TouchquePasskeyRequiredError` (`$e->reason === 'step_up'`). No offline or recovery code can finish such a request.
 - **Refused.** A critical action without a passkey is rejected (`reason: vishing_suspected`).
 - **Provisional.** Anything else is approved with `provisional` set on the approval array from `Steps::complete`. Let the user
-  in, but treat the session as limited: TouchQue refuses the user's critical actions (`blocked` / `provisional`)
+  in, but treat the session as limited: Touchque refuses the user's critical actions (`blocked` / `provisional`)
   until the phone re-confirms after the call (`APPROVAL_RECONFIRMED`). `APPROVAL_REVOKED` (`reason` `COACHED` or
   `UNDO`) means end the session; an approval revoked before you consumed it can no longer be consumed
   (409 `revoked`).
@@ -244,7 +259,7 @@ sign-in and sends a beacon to it, so a real-time phishing proxy in front of your
 approval is refused (`reason: phishing_origin`) and the phone warns the user. Allow the canary host in your
 Content-Security-Policy (`img-src` and `connect-src`).
 
-## TouchQue Actions (your code in the approval pipeline)
+## Touchque Actions (your code in the approval pipeline)
 
 Alerts, step-ups and refusals by country, local time, role or amount, passkeys
 for admins — from a template or a few lines of JavaScript, replayed against your
@@ -270,8 +285,8 @@ Register each agent with its **public** key; the private key stays where the age
 with its own key and gets a 10-minute token bound to that key (DPoP).
 
 ```php
-use TouchQue\AgentKeys;
-use TouchQue\TouchQueAgent;
+use Touchque\AgentKeys;
+use Touchque\TouchqueAgent;
 
 $keys = AgentKeys::generate();                        // or where the agent runs
 $agent = $tq->agents->create('Invoice bot', ['PAY_INVOICE'], [
@@ -280,7 +295,7 @@ $agent = $tq->agents->create('Invoice bot', ['PAY_INVOICE'], [
 ]);
 // store $agent['id'] and $keys['privateJwk'] in the agent's secrets (TQ_AGENT_ID, TQ_AGENT_KEY)
 
-$me = (new TouchQueAgent())->me();                    // in the agent
+$me = (new TouchqueAgent())->me();                    // in the agent
 ```
 
 `$tq->agents->suspend($id)` stops one agent at once, `$tq->agents->setKillSwitch(true)` every agent.
@@ -300,12 +315,12 @@ $approval = $tq->agents->redeemApproval($token, ['user' => 'jane@example.com', '
 
 ### Cross App Access (ID-JAG) and A2A agent cards
 
-An organization's identity provider (TouchQue SSO) can let one of its apps reach another service for a member with no consent screen (Cross App Access, ID-JAG, an open IETF draft): the app trades the member's ID token for an ID-JAG, then the ID-JAG for an access token at the other service. If you run an authorization server, the verifier checks an ID-JAG (issuer, single audience, your client, expiry, `typ`) and uses it once. Before your agent trusts another agent's A2A card, check its signatures (A2A 1.0 §8.4: JWS over the RFC 8785 canonical card); keys named by `jku` are only fetched from the card's own host or hosts you trust.
+An organization's identity provider (Touchque SSO) can let one of its apps reach another service for a member with no consent screen (Cross App Access, ID-JAG, an open IETF draft): the app trades the member's ID token for an ID-JAG, then the ID-JAG for an access token at the other service. If you run an authorization server, the verifier checks an ID-JAG (issuer, single audience, your client, expiry, `typ`) and uses it once. Before your agent trusts another agent's A2A card, check its signatures (A2A 1.0 §8.4: JWS over the RFC 8785 canonical card); keys named by `jku` are only fetched from the card's own host or hosts you trust.
 
 ```php
-use TouchQue\AgentCard;
-use TouchQue\CrossAppAccess;
-use TouchQue\IdJagVerifier;
+use Touchque\AgentCard;
+use Touchque\CrossAppAccess;
+use Touchque\IdJagVerifier;
 
 $jag = CrossAppAccess::requestIdJag(['issuer' => 'https://sso.touchque.com', 'clientId' => $clientId, 'clientSecret' => $secret,
     'idToken' => $idToken, 'audience' => 'https://auth.files.example']);
@@ -322,22 +337,22 @@ AgentCard::verify($cardJson, ['cardUrl' => 'https://agent.example/.well-known/ag
 ## Silent sign-ins (stop asking when nothing is new)
 
 A user who approved on their phone in this browser a little while ago, from the same phone, network and country,
-with no risk signal since, does not need another push. TouchQue's risk engine decides; your server only skips the
+with no risk signal since, does not need another push. Touchque's risk engine decides; your server only skips the
 push when it says so.
 
-1. In the browser, `@touchque/web` 1.4.0 with `createTouchQueWeb({ browserKey: true })` keeps a non-extractable
-   key for your site and sends a fresh, signed proof of it in the `X-TouchQue-Browser` header.
+1. In the browser, `@touchque/web` 2.0.0 with `createTouchqueWeb({ browserKey: true })` keeps a non-extractable
+   key for your site and sends a fresh, signed proof of it in the `X-Touchque-Browser` header.
 2. On the server, turn on `silentSignIn`:
 
 ```php
 // a service provider
 use Illuminate\Http\Request;
-use TouchQue\Laravel\TouchQueMiddleware;
-use TouchQue\Laravel\TouchQueRelay;
-use TouchQue\Relay\RelayResponse;
+use Touchque\Laravel\TouchqueMiddleware;
+use Touchque\Laravel\TouchqueRelay;
+use Touchque\Relay\RelayResponse;
 
 // The relay's POST /login
-$this->app->singleton(TouchQueRelay::class, fn ($app) => new TouchQueRelay($app->make(\TouchQue\TouchQue::class), [
+$this->app->singleton(TouchqueRelay::class, fn ($app) => new TouchqueRelay($app->make(\Touchque\Touchque::class), [
     'getLoginUser' => fn (Request $r) => $r->session()->get('password_verified_user'),
     'onAuthenticated' => function (Request $r, RelayResponse $res, array $info) {
         // $info['via'] is 'silent' when no push was needed
@@ -348,8 +363,8 @@ $this->app->singleton(TouchQueRelay::class, fn ($app) => new TouchQueRelay($app-
 ]));
 
 // The middleware: when binding it, or in your subclass (protected $silentSignIn = true;)
-$this->app->bind(TouchQueMiddleware::class, fn ($app) => new TouchQueMiddleware(
-    $app->make(\TouchQue\TouchQue::class),
+$this->app->bind(TouchqueMiddleware::class, fn ($app) => new TouchqueMiddleware(
+    $app->make(\Touchque\Touchque::class),
     ['silentSignIn' => true]
 ));
 ```
@@ -362,7 +377,7 @@ calls `onAuthenticated` with `'via' => 'silent'`. Anything else, and any error i
 with the proof attached, so its approval makes the browser known. Polling with the token never checks again.
 `Guard::run()` takes the same option (its last two arguments: `$browserProof`, `$silentSignIn`).
 
-TouchQue only lets a sign-in through silently when all of this holds: the browser proved its key and was approved
+Touchque only lets a sign-in through silently when all of this holds: the browser proved its key and was approved
 on the phone (a confirmed push, not one approved during a call, or a passkey) within your `maxAgeSeconds` and at most
 7 days ago, by the phone that is linked now; the country and the network were seen in the user's earlier approved
 sign-ins; the risk engine allows it with no risk signal; and the action is an everyday one. A critical action always
@@ -371,7 +386,7 @@ asks. In `shadow` mode (`silentMode`) it always asks and the reasons say what wo
 Without the adapters (options are arrays with camelCase keys):
 
 ```php
-$browserProof = $request->header('X-TouchQue-Browser');
+$browserProof = $request->header('X-Touchque-Browser');
 $risk = $tq->risk->check([
     'externalUsername' => $user, 'type' => 'LOGIN', 'clientIp' => $request->ip(), 'browserProof' => $browserProof,
 ]);
@@ -386,7 +401,7 @@ $tq->risk->forgetBrowsers(['externalUsername' => $user]);                     //
 
 `$tq->login->request()` takes the proof as its last argument (`$browserProof`) too. Forget a user's browsers after a
 password reset or a "sign out everywhere". `check()` reads the answer fail-closed: `prompt` is `false` only when
-TouchQue answered the boolean `false`.
+Touchque answered the boolean `false`.
 
 ## Never Locked Out (lost, dead or new phone)
 
@@ -402,7 +417,7 @@ $tq->recovery->setVouchers($user, ['bo@acme.com', 'cy@acme.com']);
 
 // "I lost my phone", after the password:
 $r = $tq->recovery->start(['externalUsername' => $user, 'clientIp' => $ip, 'displayName' => 'Ada', 'fallbackVouchers' => $admins]);
-showQr($r['bindUri']);                       // the TouchQue app on the new phone scans it
+showQr($r['bindUri']);                       // the Touchque app on the new phone scans it
 $now = $tq->recovery->status($r['recoveryId']); // each voucher's 'code' to read to them
 // $now['status']: AWAITING_DEVICE -> VOUCHING -> COOLING -> COMPLETED (or VETOED / EXPIRED / FAILED)
 
@@ -413,7 +428,7 @@ $tq->recovery->veto($r['recoveryId'], 'admin@acme.com'); // an admin who does no
 
 Every approval decision names a short case code (`K7P-2QX`: 6 characters, no I, O, 0 or 1). A user who was asked to
 match a number, needed a passkey or was refused reads it out to your support team, and the team opens the whole
-decision by it in the TouchQue dashboard (Logs → Look up a case): what went in, each check's verdict (the access rule
+decision by it in the Touchque dashboard (Logs → Look up a case): what went in, each check's verdict (the access rule
 that matched, the risk signals that were acted on and the ones only measured), and the single change that would have
 let it through. No screenshots, no log digging. The code opens nothing on its own: only your workspace sees its
 decisions.
@@ -423,7 +438,7 @@ $step = $client->start('WITHDRAW', $user);
 // $step['caseCode'] → 'K7P-2QX'; $step['reasons'] → [['code' => 'critical_action', 'text' => 'The action is marked critical']]
 try {
     $client->login->request($user, 'LOGIN');
-} catch (TouchQueAPIException $e) {
+} catch (TouchqueAPIException $e) {
     if ($e->getCaseCode() !== null) {
         show('Tell your support team: ' . $e->getCaseCode());
     }
@@ -431,7 +446,7 @@ try {
 ```
 
 `caseCode` is in the `login->request` and `risk->check` answers and every step (the guard keeps it while it waits);
-`TouchQueAPIException::getCaseCode()` carries it on refusals.
+`TouchqueAPIException::getCaseCode()` carries it on refusals.
 
 ## Blocking `verify()` and number matching
 
@@ -451,7 +466,7 @@ $tq->login->verify($user, 'SEND_MONEY', null, 30000, $ip, $userAgent, false, fal
 ```
 
 It gets an array with `requestId`, `expiresAt` and, when present, `challengeCode`, `reasons` and `caseCode`. It is
-not called when only a passkey can approve (`verify()` throws `TouchQuePasskeyRequiredError` first). Anything it
+not called when only a passkey can approve (`verify()` throws `TouchquePasskeyRequiredError` first). Anything it
 throws is logged with `error_log` and ignored: `verify()` keeps waiting. In a web request, where the page hears
 nothing until you answer, use the relay or `$tq->start()`: their first answer already carries the number.
 
@@ -459,13 +474,13 @@ Sent the request yourself with `$tq->login->request()`? `$tq->login->waitForAppr
 $pollIntervalMs = 400)` is the waiting half of `verify()`: the same answer (`approved`, `status`, `requestId`,
 `assurance`, `confirmedVia`, `provisional`), and it throws what `verify()` throws while it waits.
 
-## Verifying the device proof (no need to trust TouchQue)
+## Verifying the device proof (no need to trust Touchque)
 
 Every approval from a phone with a hardware key carries `approvalProof`: the phone's own
 signature over the request id, action, number-match code and the exact details it showed.
 
 ```php
-use TouchQue\ApprovalProof;
+use Touchque\ApprovalProof;
 
 $ok = ApprovalProof::verify($event['approvalProof'] ?? null, [
     'requestId' => $requestId, 'type' => 'WITHDRAW', 'details' => $details,
@@ -480,7 +495,7 @@ use — store `$proof['publicKey']`, then pin it).
 ## Reporting fraud
 
 Learned later that an approved request was fraud? Report it — it is the strongest signal
-TouchQue's risk engine learns from, and it stays in your audit log:
+Touchque's risk engine learns from, and it stays in your audit log:
 
 ```php
 $tq->login->reportFraud($requestId, 'chargeback', 'Disputed by card holder');
@@ -489,7 +504,7 @@ $tq->login->reportFraud($requestId, 'chargeback', 'Disputed by card holder');
 
 ## Pairing a browser by QR code
 
-Your page shows a QR code, the person scans it with the TouchQue app, and the phone that scanned is the one asked to approve, with number matching. Your page sends the thumbprint of its browser key (`@touchque/web` `browserKey.thumbprint()`); the nonce in the QR never leaves your server (TouchQue keeps its hash).
+Your page shows a QR code, the person scans it with the Touchque app, and the phone that scanned is the one asked to approve, with number matching. Your page sends the thumbprint of its browser key (`@touchque/web` `browserKey.thumbprint()`); the nonce in the QR never leaves your server (Touchque keeps its hash).
 
 ```php
 $p = $tq->qrPairings->create($keyThumbprint, ['clientIp' => $request->ip(), 'userAgent' => $request->userAgent()]);
@@ -506,21 +521,21 @@ if ($now['state'] === 'confirmed') {
 
 ## A code typed back on the phone
 
-When a sign-in needs a code another service sent the person (a text message, WhatsApp, e-mail), ask them to type it on the phone instead. The phone encrypts it to a one-time key you made for this request: TouchQue only ever holds the ciphertext. Such a request lives 5 minutes.
+When a sign-in needs a code another service sent the person (a text message, WhatsApp, e-mail), ask them to type it on the phone instead. The phone encrypts it to a one-time key you made for this request: Touchque only ever holds the ciphertext. Such a request lives 5 minutes.
 
 ```php
-$key = \TouchQue\CodeReply::newKey();   // keep $key['privateKey'] for this request
+$key = \Touchque\CodeReply::newKey();   // keep $key['privateKey'] for this request
 $sent = $tq->login->request($user, reply: ['kind' => 'code', 'key' => $key['publicKey'], 'channel' => 'sms', 'target' => '+**********26']);
 $status = $tq->login->status($sent['requestId']);   // once CONFIRMED
-$code = isset($status['reply']) ? \TouchQue\CodeReply::open($key['privateKey'], $sent['requestId'], $status['reply']['ct']) : null;
+$code = isset($status['reply']) ? \Touchque\CodeReply::open($key['privateKey'], $sent['requestId'], $status['reply']['ct']) : null;
 ```
 
 ## Safe Guard (Safe transactions approved on the phone)
 
-TouchQueSafeGuard is a transaction guard for a Safe: a transaction runs only with approvals signed by the P-256 keys on its approvers' phones. You send the raw transaction; the phone decodes it itself, shows its own rows and signs what it computed with a key only its biometrics unlock. Delegatecalls, changes to the Safe and proxy upgrades are governance: scheduled, time-locked and vetoable. A phone without that key yet gets `409 crypto_key_missing`.
+TouchqueSafeGuard is a transaction guard for a Safe: a transaction runs only with approvals signed by the P-256 keys on its approvers' phones. You send the raw transaction; the phone decodes it itself, shows its own rows and signs what it computed with a key only its biometrics unlock. Delegatecalls, changes to the Safe and proxy upgrades are governance: scheduled, time-locked and vetoable. A phone without that key yet gets `409 crypto_key_missing`.
 
 ```php
-use TouchQue\SafeApproval;
+use Touchque\SafeApproval;
 
 $target = ['chainId' => 1, 'safe' => $safe, 'guard' => $guard, 'tx' => ['to' => $to, 'value' => '0', 'data' => $data, 'operation' => 0, 'nonce' => 42]];
 $sent = $tq->safeGuard->request('treasurer@acme.com', 'safe_payment', $target + [   // an action type from your dashboard
@@ -546,30 +561,30 @@ if ($purpose === 'approve') {
 }
 ```
 
-`SafeApproval::verify` makes the guard's check off chain, so a co-signer or your own server never has to trust TouchQue: it computes the Safe transaction hash (EIP-712) and the governance hash from the raw fields, rebuilds the 149-byte message the phone signed and checks the P-256 signature (ext-openssl). Without `purpose` only an ordinary approval (`approve`) passes: an approval to schedule a change covers no nonce or gas fields and is never one to execute, so name `'purpose' => 'schedule'` when that is what you send. It refuses a high `s`, an approval that expired or is valid for more than a day, another approver index, and, when you pass `rows` or `displayDigest` from your own decoding, rows the phone did not show. `reason` is `approval_malformed`, `public_key_invalid`, `approver_index_mismatch`, `approval_expired`, `rows_differ`, `high_s` or `signature_invalid`. `SafeApproval::safeTxHash`, `governanceHash`, `message` and `displayDigest` are public too.
+`SafeApproval::verify` makes the guard's check off chain, so a co-signer or your own server never has to trust Touchque: it computes the Safe transaction hash (EIP-712) and the governance hash from the raw fields, rebuilds the 149-byte message the phone signed and checks the P-256 signature (ext-openssl). Without `purpose` only an ordinary approval (`approve`) passes: an approval to schedule a change covers no nonce or gas fields and is never one to execute, so name `'purpose' => 'schedule'` when that is what you send. It refuses a high `s`, an approval that expired or is valid for more than a day, another approver index, and, when you pass `rows` or `displayDigest` from your own decoding, rows the phone did not show. `reason` is `approval_malformed`, `public_key_invalid`, `approver_index_mismatch`, `approval_expired`, `rows_differ`, `high_s` or `signature_invalid`. `SafeApproval::safeTxHash`, `governanceHash`, `message` and `displayDigest` are public too.
 
 ## Errors
 
-All SDK exceptions extend `TouchQueException`: `TouchQueAPIException`,
-`TouchQueNetworkException`, `TouchQueConfigException`,
-`TouchQuePasskeyRequiredError`.
+All SDK exceptions extend `TouchqueException`: `TouchqueAPIException`,
+`TouchqueNetworkException`, `TouchqueConfigException`,
+`TouchquePasskeyRequiredError`.
 
-A feature your organization cannot use here throws a `TouchQueFeatureException` (still a `TouchQueAPIException`, status 403) with `getFeature()` (`device_risk`, `ai_agents`…) and `getFeatureReason()`: `TouchQueFeatureNotInPlanException`, `TouchQueFeatureReadOnlyException` or `TouchQueFeatureOffException` — not in its plan (an owner or admin adds it in the TouchQue dashboard), being turned off (reads work for 14 days, changes are refused) or switched off on this TouchQue deployment.
+A feature your organization cannot use here throws a `TouchqueFeatureException` (still a `TouchqueAPIException`, status 403) with `getFeature()` (`device_risk`, `ai_agents`…) and `getFeatureReason()`: `TouchqueFeatureNotInPlanException`, `TouchqueFeatureReadOnlyException` or `TouchqueFeatureOffException` — not in its plan (an owner or admin adds it in the Touchque dashboard), being turned off (reads work for 14 days, changes are refused) or switched off on this Touchque deployment.
 
 ## Security
 
 - Every API request is signed HMAC-SHA256 (method, path+query, timestamp, nonce, body hash).
-- The `X-TouchQue-Token` a frontend echoes back is itself signed and bound to
+- The `X-Touchque-Token` a frontend echoes back is itself signed and bound to
   one user + action + transaction digest.
 - An approval is consumed exactly once, server-side.
 - Your API secret never leaves your server.
 
-See [SECURITY.md](./SECURITY.md) to report a vulnerability.
+See [SECURITY.md](https://github.com/Touchque/touchque-php/blob/main/SECURITY.md) to report a vulnerability.
 
 ## Requirements
 
-- PHP 8.1+
-- A [TouchQue Dashboard](https://dashboard.touchque.com) account
+- PHP 7.4+ (CI runs PHP 8.2); `ext-curl` and `ext-json`, plus `ext-openssl` for approval proofs and `ext-sodium` for Ed25519 agent keys
+- A [Touchque Dashboard](https://dashboard.touchque.com) account
 - Laravel 10+ for the bundled middleware (optional)
 
 ## Logging
@@ -578,8 +593,8 @@ The SDK writes nothing to `error_log()` on its own. To see its own problems (a m
 
 ## License
 
-MIT © [TouchQue](https://touchque.com)
+MIT © [Touchque](https://touchque.com)
 
-## TouchQue Login (hosted sign-in)
+## Touchque Login (hosted sign-in)
 
 Sign-up and sign-in pages for your own customers, on your brand, with OpenID Connect. See [support.touchque.com/touchque-login](https://support.touchque.com/touchque-login) for this SDK's client and a quickstart.

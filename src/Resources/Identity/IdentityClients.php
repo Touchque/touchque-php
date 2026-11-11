@@ -1,10 +1,10 @@
 <?php
 
-namespace TouchQue\Resources\Identity;
+namespace Touchque\Resources\Identity;
 
-use TouchQue\Http\HttpClient;
+use Touchque\Http\HttpClient;
 
-/** TouchQue Login applications (`$tq->identity->clients`). */
+/** Touchque Login applications (`$tq->identity->clients`). */
 class IdentityClients extends IdentityCrud
 {
     public function __construct(HttpClient $http)

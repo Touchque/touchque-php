@@ -1,13 +1,13 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Resources\Webhook;
-use TouchQue\Exceptions\TouchQueWebhookSignatureException;
-use TouchQue\Exceptions\TouchQueWebhookReplayException;
-use TouchQue\Webhook\MemoryReplayCache;
+use Touchque\Config;
+use Touchque\Resources\Webhook;
+use Touchque\Exceptions\TouchqueWebhookSignatureException;
+use Touchque\Exceptions\TouchqueWebhookReplayException;
+use Touchque\Webhook\MemoryReplayCache;
 
 class WebhookTest extends TestCase
 {
@@ -80,7 +80,7 @@ class WebhookTest extends TestCase
     {
         $rawBody = str_replace('req_1', 'req_evil', $this->serverWebhook($this->freshPayload()));
 
-        $this->expectException(TouchQueWebhookSignatureException::class);
+        $this->expectException(TouchqueWebhookSignatureException::class);
         $this->makeWebhook()->verify($rawBody);
     }
 
@@ -88,19 +88,19 @@ class WebhookTest extends TestCase
     {
         $rawBody = $this->serverWebhook($this->freshPayload(), 'not_the_secret');
 
-        $this->expectException(TouchQueWebhookSignatureException::class);
+        $this->expectException(TouchqueWebhookSignatureException::class);
         $this->makeWebhook()->verify($rawBody);
     }
 
     public function testThrowsOnMissingSignature(): void
     {
-        $this->expectException(TouchQueWebhookSignatureException::class);
+        $this->expectException(TouchqueWebhookSignatureException::class);
         $this->makeWebhook()->verify(json_encode($this->freshPayload()));
     }
 
     public function testThrowsOnMalformedJson(): void
     {
-        $this->expectException(TouchQueWebhookSignatureException::class);
+        $this->expectException(TouchqueWebhookSignatureException::class);
         $this->makeWebhook()->verify('not json');
     }
 
@@ -108,7 +108,7 @@ class WebhookTest extends TestCase
     {
         $rawBody = $this->serverWebhook($this->freshPayload(['timestamp' => gmdate('c', time() - 3600)]));
 
-        $this->expectException(TouchQueWebhookSignatureException::class);
+        $this->expectException(TouchqueWebhookSignatureException::class);
         $this->makeWebhook()->verify($rawBody);
     }
 
@@ -179,7 +179,7 @@ class WebhookTest extends TestCase
         try {
             $this->makeWebhook()->verify($rawBody);
             $this->fail('expected a signature exception');
-        } catch (TouchQueWebhookSignatureException $e) {
+        } catch (TouchqueWebhookSignatureException $e) {
             $this->assertStringNotContainsStringIgnoringCase('expected', $e->getMessage());
         }
     }
@@ -194,7 +194,7 @@ class WebhookTest extends TestCase
             try {
                 $this->makeWebhook()->verify($body);
                 $this->fail('a webhook without a valid timestamp must be rejected');
-            } catch (TouchQueWebhookSignatureException $e) {
+            } catch (TouchqueWebhookSignatureException $e) {
                 $this->assertStringContainsString('timestamp', $e->getMessage());
             }
         }
@@ -208,15 +208,15 @@ class WebhookTest extends TestCase
         try {
             $this->makeWebhook()->verify($body, null, 300, $cache);
             $this->fail('expected a replay exception');
-        } catch (TouchQueWebhookReplayException $e) {
+        } catch (TouchqueWebhookReplayException $e) {
             $this->assertSame('once', $e->getJti());
-            $this->assertInstanceOf(TouchQueWebhookSignatureException::class, $e);
+            $this->assertInstanceOf(TouchqueWebhookSignatureException::class, $e);
         }
         $this->makeWebhook()->verify($this->serverWebhook($this->freshPayload(['jti' => 'other'])), null, 300, $cache);
 
         $noJti = $this->freshPayload();
         unset($noJti['jti']);
-        $this->expectException(TouchQueWebhookSignatureException::class);
+        $this->expectException(TouchqueWebhookSignatureException::class);
         $this->makeWebhook()->verify($this->serverWebhook($noJti), null, 300, $cache);
     }
 
@@ -226,7 +226,7 @@ class WebhookTest extends TestCase
         try {
             $this->makeWebhook()->verify($this->serverWebhook($this->freshPayload(['jti' => 'victim']), 'wrong'), null, 300, $cache);
             $this->fail('forged webhook accepted');
-        } catch (TouchQueWebhookSignatureException $e) {
+        } catch (TouchqueWebhookSignatureException $e) {
         }
         $result = $this->makeWebhook()->verify($this->serverWebhook($this->freshPayload(['jti' => 'victim'])), null, 300, $cache);
         $this->assertSame('victim', $result['jti']);
@@ -253,6 +253,6 @@ class WebhookTest extends TestCase
             'pushToken' => 'apns-token', 'kind' => 'approval',
         ])));
         $this->assertSame(Webhook::EVENT_MOBILE_PUSH, $event['event']);
-        $this->assertNotNull(\TouchQue\Resources\Mobile::pushFromWebhook($event));
+        $this->assertNotNull(\Touchque\Resources\Mobile::pushFromWebhook($event));
     }
 }

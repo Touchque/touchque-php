@@ -1,6 +1,6 @@
 <?php
 
-namespace TouchQue\Relay;
+namespace Touchque\Relay;
 
 /**
  * Counter storage for FixedWindowLimiter.

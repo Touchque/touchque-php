@@ -1,8 +1,8 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueAgentCardException;
+use Touchque\Exceptions\TouchqueAgentCardException;
 
 /**
  * A2A agent card signatures (A2A 1.0 §8.4): before your agent trusts another
@@ -29,7 +29,7 @@ final class AgentCard
     public static function esNumber(float $value): string
     {
         if (is_nan($value) || is_infinite($value)) {
-            throw new TouchQueAgentCardException('malformed', 'a number is not finite');
+            throw new TouchqueAgentCardException('malformed', 'a number is not finite');
         }
         if ($value == 0.0) {
             return '0';
@@ -96,14 +96,14 @@ final class AgentCard
             }
             return '{' . implode(',', $parts) . '}';
         }
-        throw new TouchQueAgentCardException('malformed', 'cannot canonicalize ' . gettype($value));
+        throw new TouchqueAgentCardException('malformed', 'cannot canonicalize ' . gettype($value));
     }
 
     private static function decode(string $json): \stdClass
     {
         $c = json_decode($json, false);
         if (!$c instanceof \stdClass) {
-            throw new TouchQueAgentCardException('malformed', 'the card is not a JSON object');
+            throw new TouchqueAgentCardException('malformed', 'the card is not a JSON object');
         }
         return $c;
     }
@@ -125,7 +125,7 @@ final class AgentCard
     }
 
     /**
-     * Checks the card's signatures: ['kid', 'alg', 'keySource' => 'keys' | 'jku'], or TouchQueAgentCardException.
+     * Checks the card's signatures: ['kid', 'alg', 'keySource' => 'keys' | 'jku'], or TouchqueAgentCardException.
      * Options: cardUrl?, keys? (a list of JWKs or ['keys' => […]]), trustedJkuHosts?.
      */
     public static function verify(string $cardJson, array $options = []): array
@@ -133,12 +133,12 @@ final class AgentCard
         $c = self::decode($cardJson);
         $sigs = $c->signatures ?? null;
         if (!is_array($sigs) || !$sigs) {
-            throw new TouchQueAgentCardException('unsigned', 'the card has no signatures');
+            throw new TouchqueAgentCardException('unsigned', 'the card has no signatures');
         }
         $given = $options['keys']['keys'] ?? ($options['keys'] ?? []);
         $cardHost = self::hostOf($options['cardUrl'] ?? null);
         $payload = self::payload($c);
-        $last = new TouchQueAgentCardException('invalid_signature', 'no signature verifies');
+        $last = new TouchqueAgentCardException('invalid_signature', 'no signature verifies');
         foreach ($sigs as $s) {
             if (!$s instanceof \stdClass || !is_string($s->protected ?? null) || !is_string($s->signature ?? null)) {
                 continue;
@@ -165,7 +165,7 @@ final class AgentCard
             if ($jwk === null && is_string($head['jku'] ?? null)) {
                 $jkuHost = self::hostOf($head['jku']);
                 if (!$jkuHost || ($jkuHost !== $cardHost && !in_array($jkuHost, $options['trustedJkuHosts'] ?? [], true))) {
-                    $last = new TouchQueAgentCardException('untrusted_key', "jku {$head['jku']} is not on the card's host");
+                    $last = new TouchqueAgentCardException('untrusted_key', "jku {$head['jku']} is not on the card's host");
                     continue;
                 }
                 try {
@@ -176,21 +176,21 @@ final class AgentCard
                         }
                     }
                 } catch (\Throwable $e) {
-                    $last = new TouchQueAgentCardException('keys_unavailable', "the keys at {$head['jku']} could not be read: " . $e->getMessage());
+                    $last = new TouchqueAgentCardException('keys_unavailable', "the keys at {$head['jku']} could not be read: " . $e->getMessage());
                     continue;
                 }
                 $source = 'jku';
             }
             if ($jwk === null) {
                 if ($last->error === 'invalid_signature') {
-                    $last = new TouchQueAgentCardException('untrusted_key', "no trusted key {$head['kid']}");
+                    $last = new TouchqueAgentCardException('untrusted_key', "no trusted key {$head['kid']}");
                 }
                 continue;
             }
             if (McpAuth::verifySignature($s->protected . '.' . $payload, AgentKeys::b64urlDecode($s->signature), $alg, $jwk)) {
                 return ['kid' => $head['kid'], 'alg' => $alg, 'keySource' => $source];
             }
-            $last = new TouchQueAgentCardException('invalid_signature', 'the signature does not match the card');
+            $last = new TouchqueAgentCardException('invalid_signature', 'the signature does not match the card');
         }
         throw $last;
     }
@@ -209,7 +209,7 @@ final class AgentCard
             $type = $key ? (openssl_pkey_get_details($key)['type'] ?? null) : null;
             $alg = $type === OPENSSL_KEYTYPE_EC ? 'ES256' : ($type === OPENSSL_KEYTYPE_RSA ? 'RS256' : null);
             if ($alg === null) {
-                throw new TouchQueAgentCardException('malformed', 'the key must be EC P-256, Ed25519 or RSA');
+                throw new TouchqueAgentCardException('malformed', 'the key must be EC P-256, Ed25519 or RSA');
             }
         }
         $protected = AgentKeys::b64url(json_encode(array_filter(['alg' => $alg, 'typ' => 'JOSE', 'kid' => $kid, 'jku' => $jku]), self::FLAGS));

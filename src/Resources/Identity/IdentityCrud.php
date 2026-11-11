@@ -1,10 +1,10 @@
 <?php
 
-namespace TouchQue\Resources\Identity;
+namespace Touchque\Resources\Identity;
 
-use TouchQue\Http\HttpClient;
+use Touchque\Http\HttpClient;
 
-/** List, get, create, update and delete for one kind of TouchQue Login object. */
+/** List, get, create, update and delete for one kind of Touchque Login object. */
 class IdentityCrud
 {
     protected HttpClient $http;

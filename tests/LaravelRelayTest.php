@@ -1,6 +1,6 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use Illuminate\Contracts\Routing\Registrar;
 use Illuminate\Http\JsonResponse;
@@ -8,11 +8,11 @@ use Illuminate\Http\Request;
 use Illuminate\Session\ArraySessionHandler;
 use Illuminate\Session\Store;
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Laravel\TouchQueRelay;
-use TouchQue\Relay\RelayResponse;
-use TouchQue\Resources\WebAuthn;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Laravel\TouchqueRelay;
+use Touchque\Relay\RelayResponse;
+use Touchque\Resources\WebAuthn;
+use Touchque\Touchque;
 
 class LaravelRelayTest extends TestCase
 {
@@ -23,9 +23,9 @@ class LaravelRelayTest extends TestCase
         }
     }
 
-    private function client(): TouchQue
+    private function client(): Touchque
     {
-        $tq = new TouchQue(new Config('tq_test_key', 'test_secret', 'http://127.0.0.1:9'));
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', 'http://127.0.0.1:9'));
         $tq->webauthn = $this->createMock(WebAuthn::class);
         return $tq;
     }
@@ -46,14 +46,14 @@ class LaravelRelayTest extends TestCase
                 return null;
             });
         }
-        TouchQueRelay::routes($router, '/touchque/');
+        TouchqueRelay::routes($router, '/touchque/');
         $this->assertCount(14, $registered);
-        $this->assertContains('POST /touchque/login ' . TouchQueRelay::class . '@login', $registered);
-        $this->assertContains('DELETE /touchque/passkey/credentials/{id} ' . TouchQueRelay::class . '@deleteCredential', $registered);
-        $this->assertContains('GET /touchque/enroll/status ' . TouchQueRelay::class . '@enrollStatus', $registered);
+        $this->assertContains('POST /touchque/login ' . TouchqueRelay::class . '@login', $registered);
+        $this->assertContains('DELETE /touchque/passkey/credentials/{id} ' . TouchqueRelay::class . '@deleteCredential', $registered);
+        $this->assertContains('GET /touchque/enroll/status ' . TouchqueRelay::class . '@enrollStatus', $registered);
         foreach ($registered as $line) {
             $method = substr($line, strrpos($line, '@') + 1);
-            $this->assertTrue(method_exists(TouchQueRelay::class, $method), $method);
+            $this->assertTrue(method_exists(TouchqueRelay::class, $method), $method);
         }
     }
 
@@ -62,7 +62,7 @@ class LaravelRelayTest extends TestCase
         $tq = $this->client();
         $tq->webauthn->method('primaryVerify')->with('att_1', ['id' => 'x'])
             ->willReturn(['success' => true, 'externalUsername' => 'jane@acme.com', 'requestId' => 'req_2']);
-        $relay = new TouchQueRelay($tq, [
+        $relay = new TouchqueRelay($tq, [
             'onAuthenticated' => function (Request $request, RelayResponse $response, array $info) {
                 $request->session()->put('touchque_user', $info['externalUsername']);
                 $response->addHeader('Set-Cookie', 'app_session=abc; Path=/; HttpOnly');
@@ -84,7 +84,7 @@ class LaravelRelayTest extends TestCase
     {
         $tq = $this->client();
         $tq->webauthn->expects($this->once())->method('listCredentials')->with('jane@acme.com')->willReturn([]);
-        $relay = new TouchQueRelay($tq);
+        $relay = new TouchqueRelay($tq);
 
         $anonymous = Request::create('/touchque/passkey/credentials', 'GET');
         $res = $relay->passkeyCredentials($anonymous);
@@ -104,7 +104,7 @@ class LaravelRelayTest extends TestCase
     {
         $tq = $this->client();
         $tq->webauthn->method('authenticateOptions')->willReturn(['challenge' => 'c']);
-        $relay = new TouchQueRelay($tq, ['rateLimit' => ['perIp' => 1]]);
+        $relay = new TouchqueRelay($tq, ['rateLimit' => ['perIp' => 1]]);
         $this->assertSame(200, $relay->passkeyLoginOptions(self::jsonRequest('/touchque/passkey/login/options', 'POST', ['requestId' => 'r']))->getStatusCode());
         $res = $relay->passkeyLoginOptions(self::jsonRequest('/touchque/passkey/login/options', 'POST', ['requestId' => 'r']));
         $this->assertSame(429, $res->getStatusCode());

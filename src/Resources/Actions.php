@@ -1,14 +1,14 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Http\HttpClient;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Http\HttpClient;
 
 /**
- * TouchQue Actions: your own code at points of the approval pipeline (before
+ * Touchque Actions: your own code at points of the approval pipeline (before
  * the push is sent, the silent sign-in decision, after an approval, fraud
- * reports, device and recovery events). TouchQue runs it in a sandbox; this
+ * reports, device and recovery events). Touchque runs it in a sandbox; this
  * resource deploys, tests, replays and observes it.
  *
  *     $tq->actions->deploy('night-alert', [
@@ -52,7 +52,7 @@ class Actions
     {
         $body = self::pick('deploy', $options, self::DEPLOY_KEYS);
         if (!isset($body['code']) && !isset($body['template'])) {
-            throw new TouchQueConfigException('actions->deploy() needs code or template');
+            throw new TouchqueConfigException('actions->deploy() needs code or template');
         }
         return $this->http->put(self::slugPath($slug), $body);
     }
@@ -154,7 +154,7 @@ class Actions
     public function renderTemplate(string $id, string $trigger, array $params = []): array
     {
         if (!preg_match('/^[a-z_]{1,64}$/', $id)) {
-            throw new TouchQueConfigException('Unknown template id');
+            throw new TouchqueConfigException('Unknown template id');
         }
         return $this->http->post('/actions/templates/' . $id . '/render', [
             'trigger' => $trigger,
@@ -165,7 +165,7 @@ class Actions
     private static function slugPath(string $slug): string
     {
         if (!preg_match(self::SLUG_RE, $slug)) {
-            throw new TouchQueConfigException('An Action slug is 2-63 lowercase letters, digits or - (e.g. "night-alert")');
+            throw new TouchqueConfigException('An Action slug is 2-63 lowercase letters, digits or - (e.g. "night-alert")');
         }
         return '/actions/' . $slug;
     }
@@ -174,7 +174,7 @@ class Actions
     {
         $unknown = array_diff(array_keys($options), $allowed);
         if ($unknown) {
-            throw new TouchQueConfigException("actions->$method(): unknown option \"" . implode('", "', $unknown) . '"');
+            throw new TouchqueConfigException("actions->$method(): unknown option \"" . implode('", "', $unknown) . '"');
         }
         return array_filter($options, static fn ($v) => $v !== null);
     }

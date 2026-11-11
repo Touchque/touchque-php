@@ -1,12 +1,12 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
 /**
  * A code the person types back on the phone (`$tq->login->request(..., reply: [...])`): a sign-in
  * code another service sent them (a text message, WhatsApp, e-mail). Each request gets a one-time
  * P-256 key pair; its public key goes with the request, the phone encrypts what was typed to it,
- * and only you can open it: TouchQue stores and hands back nothing but the ciphertext
+ * and only you can open it: Touchque stores and hands back nothing but the ciphertext
  * (`$tq->login->status($requestId)['reply']['ct']`).
  *
  * ECDH P-256, HKDF-SHA256 (salt: the request id, info `touchque-code-reply-v1`), AES-256-GCM
@@ -29,7 +29,7 @@ final class CodeReply
     {
         $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
         if ($key === false || !openssl_pkey_export($key, $pem)) {
-            throw new Exceptions\TouchQueConfigException('Could not make a P-256 key (is ext-openssl built with EC?)');
+            throw new Exceptions\TouchqueConfigException('Could not make a P-256 key (is ext-openssl built with EC?)');
         }
         $ec = openssl_pkey_get_details($key)['ec'];
         $point = "\x04" . str_pad($ec['x'], 32, "\0", STR_PAD_LEFT) . str_pad($ec['y'], 32, "\0", STR_PAD_LEFT);
@@ -72,8 +72,9 @@ final class CodeReply
         if ($priv === false || $peer === false) {
             return null;
         }
-        $shared = openssl_pkey_derive($peer, $priv, 32);
-        if ($shared === false) {
+        // No key_length argument: P-256 gives 32 bytes, and PHP 8.5 deprecates the argument.
+        $shared = openssl_pkey_derive($peer, $priv);
+        if ($shared === false || strlen($shared) !== 32) {
             return null;
         }
         $key = hash_hkdf('sha256', $shared, 32, self::INFO, $requestId);

@@ -1,20 +1,20 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueFeatureException;
-use TouchQue\Exceptions\TouchQueFeatureNotInPlanException;
-use TouchQue\Exceptions\TouchQueFeatureOffException;
-use TouchQue\Exceptions\TouchQueFeatureReadOnlyException;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueFeatureException;
+use Touchque\Exceptions\TouchqueFeatureNotInPlanException;
+use Touchque\Exceptions\TouchqueFeatureOffException;
+use Touchque\Exceptions\TouchqueFeatureReadOnlyException;
+use Touchque\Touchque;
 
 /**
  * A feature the workspace's organization cannot use comes back as a typed
- * exception with the feature's id, still a TouchQueAPIException. Same
- * scenarios as the Node SDK, against the shared fake TouchQue API.
+ * exception with the feature's id, still a TouchqueAPIException. Same
+ * scenarios as the Node SDK, against the shared fake Touchque API.
  */
 class FeatureErrorTest extends TestCase
 {
@@ -44,9 +44,9 @@ class FeatureErrorTest extends TestCase
     public static function refusals(): array
     {
         return [
-            ['feature_not_in_plan', TouchQueFeatureNotInPlanException::class, 'not_in_plan'],
-            ['feature_read_only', TouchQueFeatureReadOnlyException::class, 'read_only'],
-            ['feature_off', TouchQueFeatureOffException::class, 'off'],
+            ['feature_not_in_plan', TouchqueFeatureNotInPlanException::class, 'not_in_plan'],
+            ['feature_read_only', TouchqueFeatureReadOnlyException::class, 'read_only'],
+            ['feature_off', TouchqueFeatureOffException::class, 'off'],
         ];
     }
 
@@ -55,11 +55,11 @@ class FeatureErrorTest extends TestCase
     {
         self::$api->opts(['featureRefused' => $code, 'feature' => 'device_risk']);
         try {
-            (new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl)))->login->request(self::USER, 'LOGIN');
+            (new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl)))->login->request(self::USER, 'LOGIN');
             $this->fail('expected a feature exception');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertInstanceOf($class, $e);
-            $this->assertInstanceOf(TouchQueFeatureException::class, $e);
+            $this->assertInstanceOf(TouchqueFeatureException::class, $e);
             $this->assertSame(403, $e->getStatus());
             $this->assertSame('device_risk', $e->getFeature());
             $this->assertSame($reason, $e->getFeatureReason());
@@ -70,10 +70,10 @@ class FeatureErrorTest extends TestCase
     {
         self::$api->opts(['blocked' => 'access_policy']);
         try {
-            (new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl)))->login->request(self::USER, 'LOGIN');
+            (new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl)))->login->request(self::USER, 'LOGIN');
             $this->fail('expected an API exception');
-        } catch (TouchQueAPIException $e) {
-            $this->assertNotInstanceOf(TouchQueFeatureException::class, $e);
+        } catch (TouchqueAPIException $e) {
+            $this->assertNotInstanceOf(TouchqueFeatureException::class, $e);
         }
     }
 }

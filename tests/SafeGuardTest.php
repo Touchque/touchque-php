@@ -1,18 +1,18 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueRejectedException;
-use TouchQue\SafeApproval;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueRejectedException;
+use Touchque\SafeApproval;
+use Touchque\Touchque;
 
 /**
  * Safe Guard: the verifier against the shared vectors (fixtures/safe-guard-vectors.json, derived
  * from the reference project and shared with every server SDK), and request / status / wait
- * against the shared fake TouchQue API.
+ * against the shared fake Touchque API.
  */
 final class SafeGuardTest extends TestCase
 {
@@ -82,7 +82,7 @@ final class SafeGuardTest extends TestCase
     {
         $t = self::$vectors['vectors'][0]['safeTx'];
         $t['tx']['operation'] = 2;
-        $this->expectException(TouchQueConfigException::class);
+        $this->expectException(TouchqueConfigException::class);
         SafeApproval::safeTxHash($t);
     }
 
@@ -90,7 +90,7 @@ final class SafeGuardTest extends TestCase
     {
         self::$api->link('treasurer@acme.com');
         $v = self::vector('bybit_pattern');
-        $tq = new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
         self::$api->opts(['safeTxView' => ['class' => $v['class'], 'flags' => ['delegatecall'], 'safeTxHash' => $v['safeTxHash'], 'governanceHash' => $v['governanceHash'], 'purpose' => $v['purpose']]]);
         $safeTx = $v['safeTx'];
         $safeTx['chainId'] = 1;
@@ -115,7 +115,7 @@ final class SafeGuardTest extends TestCase
 
         $again = $tq->safeGuard->request('treasurer@acme.com', 'safe_payment', $v['safeTx']);
         self::$api->post('/__test/reject', ['id' => $again['requestId']]);
-        $this->expectException(TouchQueRejectedException::class);
+        $this->expectException(TouchqueRejectedException::class);
         $tq->safeGuard->waitForApproval($again['requestId'], 5000, 10);
     }
 }

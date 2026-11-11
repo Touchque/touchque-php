@@ -1,14 +1,14 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Resources\Offline;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Resources\Offline;
+use Touchque\Touchque;
 
-/** Codes during a TouchQue outage, against the shared fake TouchQue API (its code is K7P2QXA at every step). */
+/** Codes during a Touchque outage, against the shared fake Touchque API (its code is K7P2QXA at every step). */
 class OutageVerifiersTest extends TestCase
 {
     private static ?FakeApi $api = null;
@@ -31,7 +31,7 @@ class OutageVerifiersTest extends TestCase
     {
         self::$api->reset();
         self::$api->link('vpn@example.com');
-        $tq = new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
         $now = time();
         $step = intdiv($now, 30);
         $v = $tq->offline->totpVerifiers(['vpn@example.com', 'nobody@example.com'], $step - 1, 4);
@@ -43,7 +43,7 @@ class OutageVerifiersTest extends TestCase
         $this->assertNull(Offline::matchTotpVerifier($v, $user, 'K7P2QX1', $now));
 
         self::$api->opts(['outageVerifiersDisabled' => true]);
-        $this->expectException(TouchQueAPIException::class);
+        $this->expectException(TouchqueAPIException::class);
         $tq->offline->totpVerifiers(['vpn@example.com']);
     }
 }

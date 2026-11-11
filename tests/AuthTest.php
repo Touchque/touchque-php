@@ -1,10 +1,10 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Http\HttpClient;
-use TouchQue\Resources\Auth;
+use Touchque\Http\HttpClient;
+use Touchque\Resources\Auth;
 
 class AuthTest extends TestCase
 {

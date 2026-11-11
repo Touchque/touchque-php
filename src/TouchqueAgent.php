@@ -1,26 +1,26 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueFeatureException;
-use TouchQue\Exceptions\TouchQueApprovalException;
-use TouchQue\Exceptions\TouchQueTimeoutException;
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Exceptions\TouchQueNetworkException;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueFeatureException;
+use Touchque\Exceptions\TouchqueApprovalException;
+use Touchque\Exceptions\TouchqueTimeoutException;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Exceptions\TouchqueNetworkException;
 
 /**
- * The agent side: an AI agent calls TouchQue with its OWN key, never with
+ * The agent side: an AI agent calls Touchque with its OWN key, never with
  * your API key. It signs a private_key_jwt assertion (RFC 7523) for a
  * 10-minute token bound to its key with DPoP (RFC 9449), and proves the key
  * on every call, so a stolen token is useless on its own.
  *
- *     $agent = new TouchQueAgent();      // TQ_AGENT_ID, TQ_AGENT_KEY (a JWK as JSON, or an EC PEM)
+ *     $agent = new TouchqueAgent();      // TQ_AGENT_ID, TQ_AGENT_KEY (a JWK as JSON, or an EC PEM)
  *     $me = $agent->me();
  *
  * ES256 keys use ext-openssl, Ed25519 keys ext-sodium.
  */
-class TouchQueAgent
+class TouchqueAgent
 {
     public const ASSERTION_TYPE = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
 
@@ -43,11 +43,11 @@ class TouchQueAgent
     {
         $agentId = $agentId ?? (getenv('TQ_AGENT_ID') ?: '');
         if (!preg_match('/^agt_[a-z2-9]{20}$/', $agentId)) {
-            throw new TouchQueConfigException('Set TQ_AGENT_ID (or pass $agentId): the agt_... id from $tq->agents->create()');
+            throw new TouchqueConfigException('Set TQ_AGENT_ID (or pass $agentId): the agt_... id from $tq->agents->create()');
         }
         $privateKey = $privateKey ?? (getenv('TQ_AGENT_KEY') ?: null);
         if (!$privateKey) {
-            throw new TouchQueConfigException("Set TQ_AGENT_KEY (or pass \$privateKey): the agent's private key");
+            throw new TouchqueConfigException("Set TQ_AGENT_KEY (or pass \$privateKey): the agent's private key");
         }
         $this->agentId = $agentId;
         $jwk = is_array($privateKey) ? $privateKey : (is_string($privateKey) && ltrim($privateKey)[0] === '{' ? json_decode($privateKey, true) : null);
@@ -56,7 +56,7 @@ class TouchQueAgent
         } elseif (is_string($privateKey)) {
             $this->loadPem($privateKey);
         } else {
-            throw new TouchQueConfigException("privateKey must be the agent's private key: a JWK (array or JSON) or an EC PEM");
+            throw new TouchqueConfigException("privateKey must be the agent's private key: a JWK (array or JSON) or an EC PEM");
         }
         $this->kid = $kid ?? (is_array($jwk) && isset($jwk['kid']) ? (string)$jwk['kid'] : AgentKeys::thumbprint($this->publicJwk));
         $this->baseUrl = rtrim($baseUrl ?? (getenv('TQ_API_URL') ?: 'https://api.touchque.com'), '/');
@@ -64,7 +64,7 @@ class TouchQueAgent
         $host = $parts['host'] ?? '';
         $local = in_array($host, ['localhost', '127.0.0.1', '::1', '[::1]'], true);
         if (($parts['scheme'] ?? '') !== 'https' && !(($parts['scheme'] ?? '') === 'http' && $local)) {
-            throw new TouchQueConfigException("Refusing a plaintext baseUrl for \"{$host}\": use https://");
+            throw new TouchqueConfigException("Refusing a plaintext baseUrl for \"{$host}\": use https://");
         }
         $this->scope = $scope;
         $this->timeoutMs = $timeoutMs;
@@ -78,7 +78,7 @@ class TouchQueAgent
     private function loadJwk(array $jwk): void
     {
         if (!isset($jwk['d'])) {
-            throw new TouchQueConfigException("privateKey must be the agent's PRIVATE key (it has no d)");
+            throw new TouchqueConfigException("privateKey must be the agent's PRIVATE key (it has no d)");
         }
         $d = AgentKeys::b64urlDecode($jwk['d']);
         if (($jwk['kty'] ?? '') === 'OKP' && ($jwk['crv'] ?? '') === 'Ed25519' && strlen($d) === 32) {
@@ -92,7 +92,7 @@ class TouchQueAgent
             $this->loadPem(AgentKeys::ecPem($d, AgentKeys::b64urlDecode($jwk['x']), AgentKeys::b64urlDecode($jwk['y'])));
             return;
         }
-        throw new TouchQueConfigException('The agent key must be EC P-256 or Ed25519');
+        throw new TouchqueConfigException('The agent key must be EC P-256 or Ed25519');
     }
 
     private function loadPem(string $pem): void
@@ -100,10 +100,10 @@ class TouchQueAgent
         $key = @openssl_pkey_get_private($pem);
         $details = $key ? openssl_pkey_get_details($key) : false;
         if (!$details || !isset($details['ec'])) {
-            throw new TouchQueConfigException("privateKey must be the agent's private key: a JWK (array or JSON) or an EC PEM");
+            throw new TouchqueConfigException("privateKey must be the agent's private key: a JWK (array or JSON) or an EC PEM");
         }
         if (($details['ec']['curve_name'] ?? '') !== 'prime256v1') {
-            throw new TouchQueConfigException('An EC agent key must be on P-256');
+            throw new TouchqueConfigException('An EC agent key must be on P-256');
         }
         $this->alg = 'ES256';
         $this->key = $key;
@@ -122,7 +122,7 @@ class TouchQueAgent
             $sig = sodium_crypto_sign_detached($input, $this->key);
         } else {
             if (!openssl_sign($input, $der, $this->key, OPENSSL_ALGO_SHA256)) {
-                throw new TouchQueConfigException('Could not sign with the agent key');
+                throw new TouchqueConfigException('Could not sign with the agent key');
             }
             $sig = AgentKeys::derToRaw($der);
         }
@@ -160,18 +160,18 @@ class TouchQueAgent
             curl_close($ch);
         }
         if ($error || $raw === false) {
-            throw new TouchQueNetworkException('Network error: ' . $error);
+            throw new TouchqueNetworkException('Network error: ' . $error);
         }
         return [$status, json_decode((string)$raw, true) ?? []];
     }
 
-    private static function failure(int $status, array $data): TouchQueAPIException
+    private static function failure(int $status, array $data): TouchqueAPIException
     {
         $data['code'] = $data['code'] ?? ($data['error'] ?? null);
         if (isset($data['retry_after']) && !isset($data['retryAfter'])) {
             $data['retryAfter'] = (int)$data['retry_after'];
         }
-        return TouchQueFeatureException::fromResponse($data['error_description'] ?? ($data['error'] ?? 'Unknown API Error'), $status, $data);
+        return TouchqueFeatureException::fromResponse($data['error_description'] ?? ($data['error'] ?? 'Unknown API Error'), $status, $data);
     }
 
     private function fetchToken(): string
@@ -202,7 +202,7 @@ class TouchQueAgent
         return $this->fetchToken();
     }
 
-    /** A call with the agent's token and a fresh DPoP proof; one retry with a new token when TouchQue no longer knows it. */
+    /** A call with the agent's token and a fresh DPoP proof; one retry with a new token when Touchque no longer knows it. */
     protected function request(string $method, string $path, ?array $body = null, bool $retried = false): array
     {
         $token = $this->accessToken();
@@ -222,16 +222,16 @@ class TouchQueAgent
         return $data;
     }
 
-    /** The agent as TouchQue sees it: its action types, owner, review date and workspace. */
+    /** The agent as Touchque sees it: its action types, owner, review date and workspace. */
     public function me(): array
     {
         return $this->request('GET', '/agents/me');
     }
 
     /**
-     * Asks the person to approve on their TouchQue phone. Show `challengeCode`
+     * Asks the person to approve on their Touchque phone. Show `challengeCode`
      * in your conversation (presence interactive, the default): the person
-     * types it on the phone. TouchQue draws the phone's rows from
+     * types it on the phone. Touchque draws the phone's rows from
      * $authorizationDetails. $options: reason, presence, expiresIn, locale,
      * referenceId, clientIp, userAgent.
      */
@@ -266,7 +266,7 @@ class TouchQueAgent
     /**
      * The token vault: a person's own access token at another service, for a connection that names this agent
      * ($tq->agents->vault): `['access_token', 'token_type' => 'Bearer', 'expires_in'?, 'scope', 'connection']`.
-     * TouchQue refreshes it; the refresh token never leaves. TouchQueAPIException not_connected when nothing is kept.
+     * Touchque refreshes it; the refresh token never leaves. TouchqueAPIException not_connected when nothing is kept.
      */
     public function getConnectionToken(string $user, string $connection, ?string $scope = null): array
     {
@@ -297,13 +297,13 @@ class TouchQueAgent
 
     /**
      * Polls until the person approves (returns the state holding
-     * `approvalToken`). Throws TouchQueApprovalException when it ends
-     * otherwise and TouchQueTimeoutException after $timeoutSeconds. An approval
+     * `approvalToken`). Throws TouchqueApprovalException when it ends
+     * otherwise and TouchqueTimeoutException after $timeoutSeconds. An approval
      * given during a phone call stays provisional until the phone confirms it.
      */
     /**
      * Asks the person's phone and waits for the answer: the approved state (holding
-     * approvalToken), or TouchQueApprovalException / a timeout. $onChallenge (may be null)
+     * approvalToken), or TouchqueApprovalException / a timeout. $onChallenge (may be null)
      * gets the state while the phone waits: show its challengeCode in the conversation.
      * Put it in front of any tool call an agent framework makes so the call runs only after
      * the person approved.
@@ -330,10 +330,10 @@ class TouchQueAgent
                 return $state;
             }
             if (in_array($state['status'] ?? '', ['rejected', 'blocked', 'revoked', 'expired', 'stale', 'redeemed'], true)) {
-                throw new TouchQueApprovalException($approvalId, $state['status'], $state['reason'] ?? null);
+                throw new TouchqueApprovalException($approvalId, $state['status'], $state['reason'] ?? null);
             }
             if (microtime(true) + $interval > $end) {
-                throw new TouchQueTimeoutException("TouchQue: approval '{$approvalId}' was not approved within {$timeoutSeconds}s");
+                throw new TouchqueTimeoutException("Touchque: approval '{$approvalId}' was not approved within {$timeoutSeconds}s");
             }
             usleep((int)($interval * 1000000));
         }

@@ -1,9 +1,9 @@
 <?php
 
-namespace TouchQue\HostedLogin;
+namespace Touchque\HostedLogin;
 
 /**
- * The TouchQue Login My Account API (/me/v1) from your server: the signed-in
+ * The Touchque Login My Account API (/me/v1) from your server: the signed-in
  * customer's own profile, sign-in methods, devices, apps and data, called
  * with their access token for audience https://<domain>/me/.
  *
@@ -79,7 +79,7 @@ class MyAccount
     /** Needs a recent sign-in. */
     public function removePasskey(string $id): void { $this->call('DELETE', '/authentication-methods/passkeys/' . self::seg($id)); }
     /** Needs a recent sign-in. */
-    public function unlinkTouchQueApp(): void { $this->call('DELETE', '/authentication-methods/touchque'); }
+    public function unlinkTouchqueApp(): void { $this->call('DELETE', '/authentication-methods/touchque'); }
     /** Email codes as a second step. Needs a recent sign-in. */
     public function setEmailCodes(bool $enabled): array { return $this->call('PUT', '/authentication-methods/email', ['enabled' => $enabled]); }
     /** Texts a code to a new number for text-message codes. Needs a recent sign-in. */

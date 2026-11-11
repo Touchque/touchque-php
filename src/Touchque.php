@@ -1,36 +1,36 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Http\HttpClient;
-use TouchQue\Resources\Actions;
-use TouchQue\Resources\Agents;
-use TouchQue\Resources\Identity;
-use TouchQue\Resources\Mobile;
-use TouchQue\Resources\QrPairings;
-use TouchQue\Resources\DeviceRisk;
-use TouchQue\Resources\SafeGuard;
-use TouchQue\Resources\ActionTypes;
-use TouchQue\Resources\Auth;
-use TouchQue\Resources\Login;
-use TouchQue\Resources\Offline;
-use TouchQue\Resources\Risk;
-use TouchQue\Resources\Recovery;
-use TouchQue\Resources\Assist;
-use TouchQue\Resources\WebAuthn;
-use TouchQue\Resources\Webhook;
+use Touchque\Http\HttpClient;
+use Touchque\Resources\Actions;
+use Touchque\Resources\Agents;
+use Touchque\Resources\Identity;
+use Touchque\Resources\Mobile;
+use Touchque\Resources\QrPairings;
+use Touchque\Resources\DeviceRisk;
+use Touchque\Resources\SafeGuard;
+use Touchque\Resources\ActionTypes;
+use Touchque\Resources\Auth;
+use Touchque\Resources\Login;
+use Touchque\Resources\Offline;
+use Touchque\Resources\Risk;
+use Touchque\Resources\Recovery;
+use Touchque\Resources\Assist;
+use Touchque\Resources\WebAuthn;
+use Touchque\Resources\Webhook;
 
 /**
- * TouchQue SDK client.
+ * Touchque SDK client.
  *
  *     // .env: TQ_API_KEY=tq_...  TQ_API_SECRET=...
- *     $tq = new TouchQue();                                    // from the environment
- *     $tq = new TouchQue(new Config($apiKey, $apiSecret));      // explicit
+ *     $tq = new Touchque();                                    // from the environment
+ *     $tq = new Touchque(new Config($apiKey, $apiSecret));      // explicit
  *
- * One line per protected route — see `TouchQue\Laravel\TouchQueMiddleware`,
+ * One line per protected route — see `Touchque\Laravel\TouchqueMiddleware`,
  * or call `start()` / `check()` / `complete()` yourself for any framework.
  */
-class TouchQue
+class Touchque
 {
     public Auth $auth;
     public Login $login;
@@ -39,17 +39,17 @@ class TouchQue
     public Offline $offline;
     /** Action types: what users approve (LOGIN, SEND_MONEY…). Was `$actions` before 4.0. */
     public ActionTypes $actionTypes;
-    /** TouchQue Actions: your own code in the approval pipeline. */
+    /** Touchque Actions: your own code in the approval pipeline. */
     public Actions $actions;
-    /** Silent sign-ins: should this sign-in ask the phone, and which browsers TouchQue knows. */
+    /** Silent sign-ins: should this sign-in ask the phone, and which browsers Touchque knows. */
     public Risk $risk;
     /** Never Locked Out: move a user whose phone is gone to a new phone, with colleagues vouching. */
     public Recovery $recovery;
     /** Help desk: IT working on a person's account in the open, and checks on their phone before sensitive actions. */
     public Assist $assist;
-    /** AI agents as identities of their own: register (public key), suspend, revoke, kill switch. The agent itself uses TouchQueAgent. */
+    /** AI agents as identities of their own: register (public key), suspend, revoke, kill switch. The agent itself uses TouchqueAgent. */
     public Agents $agents;
-    /** TouchQue Login: your customers' accounts, roles, organizations, apps, connections (Management API). */
+    /** Touchque Login: your customers' accounts, roles, organizations, apps, connections (Management API). */
     public Identity $identity;
     /** Mobile SDK: your own iOS/Android app approves for your users (enrollment tokens, devices, settings). */
     public Mobile $mobile;
@@ -57,7 +57,7 @@ class TouchQue
     public QrPairings $qrPairings;
     /** Device risk: the device on your sign-up, reset, sign-in or approval page (a paid add-on). */
     public DeviceRisk $deviceRisk;
-    /** Safe Guard: Safe transactions approved on the approver's phone, for TouchQueSafeGuard. */
+    /** Safe Guard: Safe transactions approved on the approver's phone, for TouchqueSafeGuard. */
     public SafeGuard $safeGuard;
 
     private Config $config;
@@ -100,9 +100,9 @@ class TouchQue
     /**
      * Starts an approval and returns immediately — show the step in your UI.
      * `waiting` + `number`: show the number, the user picks it on the phone.
-     * `enroll`: show `enroll['qrCodeDataUrl']` so the user links the TouchQue app first.
-     * `$browserProof` (silent sign-ins): the `X-TouchQue-Browser` header, passed through
-     * untouched; once the user approves, TouchQue knows this browser.
+     * `enroll`: show `enroll['qrCodeDataUrl']` so the user links the Touchque app first.
+     * `$browserProof` (silent sign-ins): the `X-Touchque-Browser` header, passed through
+     * untouched; once the user approves, Touchque knows this browser.
      */
     public function start(string $action, string $user, ?array $details = null, ?string $referenceId = null, ?string $ip = null, ?string $userAgent = null, ?string $browserProof = null): array
     {

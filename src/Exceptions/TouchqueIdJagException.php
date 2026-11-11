@@ -1,12 +1,12 @@
 <?php
 
-namespace TouchQue\Exceptions;
+namespace Touchque\Exceptions;
 
 /**
  * A refused ID-JAG or exchange (Cross App Access). $error is the OAuth error:
  * invalid_grant for a bad ID-JAG, else what the server answered.
  */
-class TouchQueIdJagException extends TouchQueException
+class TouchqueIdJagException extends TouchqueException
 {
     public string $error;
     public ?int $status;

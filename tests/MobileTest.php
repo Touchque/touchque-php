@@ -1,16 +1,16 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Resources\Mobile;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Resources\Mobile;
+use Touchque\Touchque;
 
 /**
  * Mobile SDK (the partner's own app as the approver) against the shared fake
- * TouchQue API: an enrollment token the app spends once, replace for a second
+ * Touchque API: an enrollment token the app spends once, replace for a second
  * phone, the devices, the settings, and the push a MOBILE_PUSH webhook
  * becomes. Same scenarios as the Node SDK's tests.
  */
@@ -34,10 +34,10 @@ class MobileTest extends TestCase
         }
     }
 
-    private function tq(): TouchQue
+    private function tq(): Touchque
     {
         self::$api->reset();
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
     public function testATokenIsSpentOnceAndASecondPhoneNeedsReplace(): void
@@ -49,7 +49,7 @@ class MobileTest extends TestCase
         try {
             $tq->mobile->createEnrollment(['externalUsername' => 'ada@shop.example']);
             $this->fail('expected already_enrolled');
-        } catch (TouchQueAPIException $e) {
+        } catch (TouchqueAPIException $e) {
             $this->assertSame('already_enrolled', $e->getErrorCode());
         }
         $second = $tq->mobile->createEnrollment(['externalUsername' => 'ada@shop.example', 'replace' => true, 'ttlSeconds' => 300]);

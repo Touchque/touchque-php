@@ -1,20 +1,20 @@
 <?php
 
-namespace TouchQue\Resources;
+namespace Touchque\Resources;
 
-use TouchQue\Exceptions\TouchQueConfigException;
-use TouchQue\Http\HttpClient;
+use Touchque\Exceptions\TouchqueConfigException;
+use Touchque\Http\HttpClient;
 
 /**
  * Pairing a browser by QR code: your page shows a QR code, the person scans it
- * with the TouchQue app, and the phone that scanned is the one asked to approve.
+ * with the Touchque app, and the phone that scanned is the one asked to approve.
  *
  * 1. Your page gets the thumbprint of its browser key (`@touchque/web`
  *    `browserKey.thumbprint()`) and sends it to your server.
  * 2. `create($keyThumbprint, ['clientIp' => ..., 'userAgent' => ...])` registers
  *    a pairing and returns `uri` (touchque://pair-browser?...): show it as a QR
  *    code. It can be scanned once, for `ttlSeconds` (default 120). The nonce in
- *    it never leaves your server and the QR: TouchQue keeps only its hash.
+ *    it never leaves your server and the QR: Touchque keeps only its hash.
  * 3. Poll `get($pairingId)`: `scanned` once a phone holding one of your users'
  *    accounts read it (`externalUsername`, `proximity`), `confirmed` once the
  *    person went on, `reported` when they said someone told them to scan it
@@ -52,15 +52,15 @@ class QrPairings
     public function create(string $keyThumbprint, array $options = []): array
     {
         if (!preg_match('/^[A-Za-z0-9_-]{43}$/', $keyThumbprint)) {
-            throw new TouchQueConfigException('qrPairings->create() needs the keyThumbprint: the RFC 7638 thumbprint of the browser key, base64url (43 characters).');
+            throw new TouchqueConfigException('qrPairings->create() needs the keyThumbprint: the RFC 7638 thumbprint of the browser key, base64url (43 characters).');
         }
         $unknown = array_diff(array_keys($options), self::CREATE_OPTIONS);
         if ($unknown) {
-            throw new TouchQueConfigException('qrPairings->create(): unknown option ' . implode(', ', $unknown) . '.');
+            throw new TouchqueConfigException('qrPairings->create(): unknown option ' . implode(', ', $unknown) . '.');
         }
         $ttl = $options['ttlSeconds'] ?? null;
         if ($ttl !== null && (!is_int($ttl) || $ttl < 30 || $ttl > 300)) {
-            throw new TouchQueConfigException('qrPairings->create(): ttlSeconds must be 30 to 300.');
+            throw new TouchqueConfigException('qrPairings->create(): ttlSeconds must be 30 to 300.');
         }
         $nonce = self::b64url(random_bytes(32));
         $body = ['nonceHash' => self::b64url(hash('sha256', $nonce, true)), 'keyThumbprint' => $keyThumbprint];
@@ -86,10 +86,10 @@ class QrPairings
     public function refuse(string $pairingId, string $reason, string $message, ?string $caseCode = null, ?string $deviceCode = null): array
     {
         if (!in_array($reason, self::REFUSAL_REASONS, true)) {
-            throw new TouchQueConfigException('qrPairings->refuse(): reason must be one of ' . implode(', ', self::REFUSAL_REASONS) . '.');
+            throw new TouchqueConfigException('qrPairings->refuse(): reason must be one of ' . implode(', ', self::REFUSAL_REASONS) . '.');
         }
         if (trim($message) === '') {
-            throw new TouchQueConfigException('qrPairings->refuse() needs the message: what the phone shows (up to 300 characters).');
+            throw new TouchqueConfigException('qrPairings->refuse() needs the message: what the phone shows (up to 300 characters).');
         }
         $body = ['reason' => $reason, 'message' => $message];
         if ($caseCode !== null && $caseCode !== '') {
@@ -104,7 +104,7 @@ class QrPairings
     private static function id(string $pairingId, string $method): string
     {
         if ($pairingId === '') {
-            throw new TouchQueConfigException("qrPairings->{$method}() needs the pairingId.");
+            throw new TouchqueConfigException("qrPairings->{$method}() needs the pairingId.");
         }
         return rawurlencode($pairingId);
     }

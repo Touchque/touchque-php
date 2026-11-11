@@ -1,9 +1,9 @@
 <?php
 
-namespace TouchQue\HostedLogin;
+namespace Touchque\HostedLogin;
 
 /**
- * TouchQue Login (hosted sign-in) for your app: an OpenID Connect client for
+ * Touchque Login (hosted sign-in) for your app: an OpenID Connect client for
  * your tenant (acme.login.touchque.com or your own domain).
  *
  *   $login = new HostedLogin(['domain' => 'acme.login.touchque.com', 'clientId' => ..., 'clientSecret' => ..., 'redirectUri' => ...]);
@@ -250,7 +250,7 @@ class HostedLogin
 
     /**
      * Token vault: the provider's own access token (Google, Microsoft, GitHub…) for the
-     * signed-in user, from a connection that stores tokens. TouchQue refreshes it; the
+     * signed-in user, from a connection that stores tokens. Touchque refreshes it; the
      * refresh token never leaves. $userAccessToken is the user's token for this app (or for
      * an app the connection lists). HostedLoginException invalid_grant: the user has not
      * signed in with the connection since it started storing tokens, or they stopped app access.

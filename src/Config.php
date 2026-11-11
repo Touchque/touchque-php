@@ -1,8 +1,8 @@
 <?php
 
-namespace TouchQue;
+namespace Touchque;
 
-use TouchQue\Exceptions\TouchQueConfigException;
+use Touchque\Exceptions\TouchqueConfigException;
 
 class Config
 {
@@ -39,10 +39,10 @@ class Config
         $baseUrl = $baseUrl ?? (getenv('TQ_API_URL') ?: self::DEFAULT_BASE_URL);
 
         if (!$apiKey || !$apiSecret) {
-            throw new TouchQueConfigException('Set TQ_API_KEY and TQ_API_SECRET (or pass them to Config).');
+            throw new TouchqueConfigException('Set TQ_API_KEY and TQ_API_SECRET (or pass them to Config).');
         }
         if (strpos($apiKey, 'tq_') !== 0) {
-            throw new TouchQueConfigException('apiKey must start with "tq_". Did you accidentally swap apiKey and apiSecret?');
+            throw new TouchqueConfigException('apiKey must start with "tq_". Did you accidentally swap apiKey and apiSecret?');
         }
         self::assertSafeBaseUrl($baseUrl);
         $this->apiKey = $apiKey;
@@ -91,12 +91,12 @@ class Config
             return;
         }
         if ($scheme === 'http') {
-            throw new TouchQueConfigException(
+            throw new TouchqueConfigException(
                 "Refusing a plaintext http:// baseUrl for \"{$host}\". The API key and request "
                 . 'signature would be sent in the clear — use https://.'
             );
         }
-        throw new TouchQueConfigException("baseUrl must be http(s): {$baseUrl}");
+        throw new TouchqueConfigException("baseUrl must be http(s): {$baseUrl}");
     }
 
     public function getApiKey(): string

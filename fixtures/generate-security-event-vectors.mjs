@@ -1,6 +1,6 @@
 // Shared Signals SETs every SDK's SecurityEventVerifier must read the same way
 // (security-event-vectors.json): a fixed RSA key's public JWKS, valid SETs
-// of each event type TouchQue sends and the parsed result, and refused ones
+// of each event type Touchque sends and the parsed result, and refused ones
 // with the RFC 8935 error code. Run: node fixtures/generate-security-event-vectors.mjs
 import { generateKeyPairSync, createSign, randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';

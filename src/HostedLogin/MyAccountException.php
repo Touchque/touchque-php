@@ -1,11 +1,11 @@
 <?php
 
-namespace TouchQue\HostedLogin;
+namespace Touchque\HostedLogin;
 
-use TouchQue\Exceptions\TouchQueException;
+use Touchque\Exceptions\TouchqueException;
 
 /** A My Account API call failed; isStepUp() means the sign-in is too old for it (RFC 9470). */
-class MyAccountException extends TouchQueException
+class MyAccountException extends TouchqueException
 {
     private string $errorCode;
     private ?string $description;

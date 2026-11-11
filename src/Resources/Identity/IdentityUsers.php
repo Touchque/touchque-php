@@ -1,8 +1,8 @@
 <?php
 
-namespace TouchQue\Resources\Identity;
+namespace Touchque\Resources\Identity;
 
-use TouchQue\Http\HttpClient;
+use Touchque\Http\HttpClient;
 
 /** `$tq->identity->users`: a tenant's customer accounts. */
 class IdentityUsers
@@ -83,7 +83,7 @@ class IdentityUsers
         return $this->http->delete('/identity/users/' . self::id($userId) . '/sessions');
     }
 
-    /** Removes passkeys, unlinks the TouchQue app, turns email codes off, signs out everywhere. */
+    /** Removes passkeys, unlinks the Touchque app, turns email codes off, signs out everywhere. */
     public function resetMfa(string $userId): array
     {
         return $this->http->delete('/identity/users/' . self::id($userId) . '/mfa');

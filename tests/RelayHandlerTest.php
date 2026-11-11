@@ -1,22 +1,22 @@
 <?php
 
-namespace TouchQue\Tests;
+namespace Touchque\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TouchQue\Config;
-use TouchQue\Exceptions\TouchQueAPIException;
-use TouchQue\Exceptions\TouchQueNetworkException;
-use TouchQue\Exceptions\TouchQueRejectedException;
-use TouchQue\Relay\FixedWindowLimiter;
-use TouchQue\Relay\MemoryRateLimitStore;
-use TouchQue\Relay\RateLimitStore;
-use TouchQue\Relay\RelayHandler;
-use TouchQue\Relay\RelayResponse;
-use TouchQue\Resources\Auth;
-use TouchQue\Resources\Login;
-use TouchQue\Resources\Offline;
-use TouchQue\Resources\WebAuthn;
-use TouchQue\TouchQue;
+use Touchque\Config;
+use Touchque\Exceptions\TouchqueAPIException;
+use Touchque\Exceptions\TouchqueNetworkException;
+use Touchque\Exceptions\TouchqueRejectedException;
+use Touchque\Relay\FixedWindowLimiter;
+use Touchque\Relay\MemoryRateLimitStore;
+use Touchque\Relay\RateLimitStore;
+use Touchque\Relay\RelayHandler;
+use Touchque\Relay\RelayResponse;
+use Touchque\Resources\Auth;
+use Touchque\Resources\Login;
+use Touchque\Resources\Offline;
+use Touchque\Resources\WebAuthn;
+use Touchque\Touchque;
 
 class RelayHandlerTest extends TestCase
 {
@@ -38,18 +38,18 @@ class RelayHandlerTest extends TestCase
         }
     }
 
-    private function realClient(): TouchQue
+    private function realClient(): Touchque
     {
         if (self::$api === null) {
             $this->markTestSkipped('node is required for contract tests');
         }
-        return new TouchQue(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        return new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
     }
 
     /** A client whose resources are PHPUnit mocks (nothing reaches the network). */
-    private function mockClient(): TouchQue
+    private function mockClient(): Touchque
     {
-        $tq = new TouchQue(new Config('tq_test_key', 'test_secret', 'http://127.0.0.1:9'));
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', 'http://127.0.0.1:9'));
         $tq->auth = $this->createMock(Auth::class);
         $tq->login = $this->createMock(Login::class);
         $tq->offline = $this->createMock(Offline::class);
@@ -62,7 +62,7 @@ class RelayHandlerTest extends TestCase
         return $name . '-' . (++self::$seq) . '-' . bin2hex(random_bytes(3)) . '@example.com';
     }
 
-    private function handler(TouchQue $tq, array $options = []): RelayHandler
+    private function handler(Touchque $tq, array $options = []): RelayHandler
     {
         return new RelayHandler($tq, $options + ['getUserId' => function () {
             return 'user@example.com';
@@ -160,7 +160,7 @@ class RelayHandlerTest extends TestCase
         $this->assertSame(200, $first->getStatus());
         $this->assertSame('data:image/png;base64,QR-' . $user, $first->getBody()['qrCodeDataUrl']);
 
-        // A QR was issued but not scanned: 409 from TouchQue, safe to reset.
+        // A QR was issued but not scanned: 409 from Touchque, safe to reset.
         $second = $this->call($h, 'POST', '/enroll/start');
         $this->assertSame(200, $second->getStatus());
         $this->assertSame('S2', $second->getBody()['secret']);
@@ -239,7 +239,7 @@ class RelayHandlerTest extends TestCase
 
             self::$api->approve();
             $token = $first->getBody()['token'];
-            $done = $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-TouchQue-Token' => $token]);
+            $done = $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-Touchque-Token' => $token]);
             $this->assertSame(200, $done->getStatus());
             $this->assertSame('success', $done->getBody()['status']);
             $this->assertSame($step['requestId'], $done->getBody()['requestId']);
@@ -248,7 +248,7 @@ class RelayHandlerTest extends TestCase
             $this->assertCount(1, $calls);
             $this->assertSame(['externalUsername' => $user, 'requestId' => $step['requestId'], 'via' => 'login'], $calls[0]);
 
-            $replay = $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-TouchQue-Token' => $token]);
+            $replay = $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-Touchque-Token' => $token]);
             $this->assertNotSame(200, $replay->getStatus());
             $this->assertCount(1, $calls);
         } finally {
@@ -261,14 +261,14 @@ class RelayHandlerTest extends TestCase
         $tq = $this->realClient();
         $user = self::user('cb');
         self::$api->link($user);
-        $throw = new TouchQueRejectedException('rejected');
+        $throw = new TouchqueRejectedException('rejected');
         $h = $this->handler($tq, ['rateLimit' => false, 'onAuthenticated' => function () use (&$throw) {
             throw $throw;
         }]);
         $run = function () use ($h, $user): RelayResponse {
             $first = $this->call($h, 'POST', '/login', ['externalUsername' => $user]);
             self::$api->approve($first->getBody()['touchque']['requestId']);
-            return $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-TouchQue-Token' => $first->getBody()['token']]);
+            return $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-Touchque-Token' => $first->getBody()['token']]);
         };
 
         $res = $run();
@@ -390,7 +390,7 @@ class RelayHandlerTest extends TestCase
         $this->assertSame(['challengeId' => 'c1', 'qr' => 'TQ1.a.b', 'qrDataUrl' => 'data:', 'expiresAt' => 't', 'expiresInSeconds' => 120, 'totpAvailable' => true], $res->getBody());
     }
 
-    public function testOfflineVerifyAuthenticatesTheUserTouchQueReturned(): void
+    public function testOfflineVerifyAuthenticatesTheUserTouchqueReturned(): void
     {
         $tq = $this->mockClient();
         $tq->offline->method('verify')->with('c1', 'ABC-DEFG')->willReturn(['approved' => true, 'challengeId' => 'c1', 'externalUsername' => 'user@example.com', 'type' => 'LOGIN']);
@@ -463,7 +463,7 @@ class RelayHandlerTest extends TestCase
         $this->assertCount(1, $calls);
     }
 
-    public function testPasskeyLoginVerifyOpensSessionOnlyForTheUserTouchQueApproved(): void
+    public function testPasskeyLoginVerifyOpensSessionOnlyForTheUserTouchqueApproved(): void
     {
         $tq = $this->mockClient();
         $tq->webauthn->method('authenticateVerify')->with('req_9', [])->willReturnOnConsecutiveCalls(
@@ -520,9 +520,9 @@ class RelayHandlerTest extends TestCase
     {
         $tq = $this->mockClient();
         $tq->webauthn->method('listCredentials')->willReturnOnConsecutiveCalls(
-            $this->throwException(new TouchQueAPIException('Internal detail for tenant 42', 404, ['code' => 'not_found', 'error' => 'Internal detail for tenant 42'])),
-            $this->throwException(new TouchQueAPIException('Bad request', 400, ['error' => 'invalid_input'])),
-            $this->throwException(new TouchQueAPIException('Unknown API Error', 422, []))
+            $this->throwException(new TouchqueAPIException('Internal detail for tenant 42', 404, ['code' => 'not_found', 'error' => 'Internal detail for tenant 42'])),
+            $this->throwException(new TouchqueAPIException('Bad request', 400, ['error' => 'invalid_input'])),
+            $this->throwException(new TouchqueAPIException('Unknown API Error', 422, []))
         );
         $h = $this->handler($tq);
         $res = $this->call($h, 'GET', '/passkey/credentials');
@@ -537,8 +537,8 @@ class RelayHandlerTest extends TestCase
     {
         $tq = $this->mockClient();
         $tq->webauthn->method('listCredentials')->willReturnOnConsecutiveCalls(
-            $this->throwException(new TouchQueAPIException('db exploded at 10.0.0.5', 500, ['error' => 'db exploded at 10.0.0.5'])),
-            $this->throwException(new TouchQueNetworkException('Network error: connection refused'))
+            $this->throwException(new TouchqueAPIException('db exploded at 10.0.0.5', 500, ['error' => 'db exploded at 10.0.0.5'])),
+            $this->throwException(new TouchqueNetworkException('Network error: connection refused'))
         );
         $h = $this->handler($tq);
         foreach ([1, 2] as $_) {
@@ -586,7 +586,7 @@ class RelayHandlerTest extends TestCase
             if ($i === 9) {
                 self::$api->approve();
             }
-            $res = $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-TouchQue-Token' => $token]);
+            $res = $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-Touchque-Token' => $token]);
             $this->assertSame($i === 9 ? 200 : 202, $res->getStatus(), "poll $i");
         }
         // New attempts still are: 4 more starts fill the per-user budget of 5.
@@ -594,7 +594,7 @@ class RelayHandlerTest extends TestCase
             $this->call($h, 'POST', '/login', ['externalUsername' => $user]);
         }
         $this->assertSame(429, $this->call($h, 'POST', '/login', ['externalUsername' => $user])->getStatus());
-        $this->assertSame(429, $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-TouchQue-Token' => 'forged'])->getStatus());
+        $this->assertSame(429, $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-Touchque-Token' => 'forged'])->getStatus());
     }
 
     public function testAddingAPasskeyNeedsThePhone(): void
@@ -615,7 +615,7 @@ class RelayHandlerTest extends TestCase
         $this->assertSame(202, $first->getStatus());
         $this->assertSame('waiting', $first->getBody()['touchque']['state']);
         $this->assertSame('47', $first->getBody()['touchque']['number']);
-        $token = ['X-TouchQue-Token' => $first->getBody()['token']];
+        $token = ['X-Touchque-Token' => $first->getBody()['token']];
         $this->assertSame(202, $this->call($h, 'POST', '/passkey/register/options', [], $token)->getStatus());
         self::$api->approve();
         $done = $this->call($h, 'POST', '/passkey/register/options', [], $token);

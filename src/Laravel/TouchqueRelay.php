@@ -1,56 +1,56 @@
 <?php
 
-namespace TouchQue\Laravel;
+namespace Touchque\Laravel;
 
 use Illuminate\Contracts\Routing\Registrar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use TouchQue\Relay\RelayHandler;
-use TouchQue\Relay\RelayResponse;
-use TouchQue\TouchQue;
+use Touchque\Relay\RelayHandler;
+use Touchque\Relay\RelayResponse;
+use Touchque\Touchque;
 
 /**
  * Laravel: every relay route a frontend (`@touchque/web`) needs — POST /login,
  * enrollment, offline codes, passkey ceremonies — as one controller. See
- * `TouchQue\Relay\RelayHandler` for the routes, options and security rules.
+ * `Touchque\Relay\RelayHandler` for the routes, options and security rules.
  *
  * Bind it once in a service provider with your options (the callables get the
  * Illuminate `Request`; `onAuthenticated` also gets the pending
  * `RelayResponse`, whose headers you may change):
  *
- *     $this->app->singleton(TouchQueRelay::class, fn ($app) => new TouchQueRelay($app->make(TouchQue::class), [
+ *     $this->app->singleton(TouchqueRelay::class, fn ($app) => new TouchqueRelay($app->make(Touchque::class), [
  *         'getLoginUser' => fn (Request $r) => $r->session()->get('password_verified_user'),
  *         'onAuthenticated' => function (Request $r, RelayResponse $res, array $info) {
  *             $r->session()->regenerate();
  *             $r->session()->put('touchque_user', $info['externalUsername']);
  *         },
- *         // Silent sign-ins: a known browser (X-TouchQue-Browser) with nothing new skips the push.
+ *         // Silent sign-ins: a known browser (X-Touchque-Browser) with nothing new skips the push.
  *         'silentSignIn' => true,
  *     ]));
  *
  * and register the routes, e.g. in routes/web.php (session middleware needed
  * for getLoginUser/onAuthenticated):
  *
- *     TouchQueRelay::routes(app('router'), 'touchque');
+ *     TouchqueRelay::routes(app('router'), 'touchque');
  *
  * Routes point at this class (no closures), so `php artisan route:cache` works.
  * Without a `getUserId` option the signed-in user comes from Laravel's own auth
  * (`$request->user()`, tried as `->email`, `->getAuthIdentifier()`, `->username`),
- * like TouchQueMiddleware. `$request->ip()` must be the real client: configure
+ * like TouchqueMiddleware. `$request->ip()` must be the real client: configure
  * TrustProxies behind a load balancer.
  */
-class TouchQueRelay
+class TouchqueRelay
 {
     private RelayHandler $handler;
 
-    public function __construct(TouchQue $touchQue, array $options = [])
+    public function __construct(Touchque $touchque, array $options = [])
     {
         if (!isset($options['getUserId'])) {
             $options['getUserId'] = function (Request $request): ?string {
                 return $this->resolveUser($request);
             };
         }
-        $this->handler = new RelayHandler($touchQue, $options);
+        $this->handler = new RelayHandler($touchque, $options);
     }
 
     /**
