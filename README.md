@@ -69,7 +69,8 @@ $tq->actionTypes->define('SEND_MONEY', 'Send money', null, true);   // type, nam
 The guard refuses what is not ready. A name that is not defined is a setup error
 (`TouchqueConfigException`, "Unknown action …"): the guard answers 500 with `reason: 'misconfigured'`. A type
 turned off in the dashboard answers 403 with `reason: 'action_disabled'`, which stops that kind of
-approval at once, without a deploy.
+approval at once, without a deploy. These answers come for a
+user whose phone is linked: a user without one is first shown the phone-linking step.
 
 ## Relay routes for `@touchque/web`
 
