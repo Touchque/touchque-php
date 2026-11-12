@@ -456,13 +456,132 @@ class ContractTest extends TestCase
         }
     }
 
-    public function testAnEnrollStepWithoutAQrIsNoStatusPoll(): void
+    public function testEnrollOffSaysWhyAndIsNoStatusPoll(): void
     {
         $tq = $this->client();
-        // enroll: false (a pre-auth relay): "not linked", no QR, so no expiry in the token.
+        // $enroll = false (a pre-auth relay): "not linked", no QR, so no expiry in the token.
         $step = Guard::run($tq, 'enroll-none@acme.com', 'LOGIN', null, null, null, null, null, false, null, null, false);
-        $this->assertSame(['state' => 'enroll'], $step['body']['touchque']);
+        $this->assertSame(202, $step['status']);
+        $this->assertSame(['state' => 'enroll', 'reason' => 'enrollment_off'], $step['body']['touchque']);
         $this->assertFalse(Guard::isStatusPoll($tq, 'enroll-none@acme.com', 'LOGIN', null, null, $step['body']['token']));
+        // A 202 step, not a refusal: no state headers.
+        $this->assertSame(['Cache-Control' => 'no-store'], Guard::response($step)['headers']);
+    }
+
+    // ── Waiting polls repeat expiresAt ─────────────────────────────────────
+
+    /** The claims of a guard token signed with the fake API's secret. */
+    private static function claims(string $token): array
+    {
+        return Steps::verifyGuardToken('test_secret', $token);
+    }
+
+    public function testWaitingPollsCarryTheRequestsExpiresAt(): void
+    {
+        $this->cleanOpts();
+        $user = 'expiry-poll@acme.com';
+        self::$api->link($user);
+        $tq = $this->client();
+        $poll = fn (string $token, bool $offline = false) => Guard::run($tq, $user, 'LOGIN', null, null, null, null, $token, $offline);
+
+        $first = Guard::run($tq, $user, 'LOGIN');
+        $rx = Steps::isoMs($first['body']['touchque']['expiresAt']);
+        $this->assertNotNull($rx);
+        $this->assertSame($rx, self::claims($first['body']['token'])['rx'], 'the token carries the request\'s expiry');
+        $expiresAt = Steps::isoOf($rx);
+
+        $second = $poll($first['body']['token']);
+        $third = $poll($second['body']['token']);
+        foreach ([$second, $third] as $answer) {
+            $this->assertSame([202, 'waiting', $expiresAt], [$answer['status'], $answer['body']['touchque']['state'], $answer['body']['touchque']['expiresAt']]);
+            $this->assertSame($rx, self::claims($answer['body']['token'])['rx']);
+        }
+
+        // The offline QR next to the push carries it on.
+        $off = $poll($third['body']['token'], true);
+        $this->assertSame('offline', $off['body']['touchque']['state']);
+        $this->assertSame($rx, self::claims($off['body']['token'])['rx']);
+        $kept = $poll($off['body']['token']);
+        $this->assertSame([$rx, 'offline'], [self::claims($kept['body']['token'])['rx'], $kept['body']['touchque']['state']]);
+
+        // A tap during a call moves the push to a passkey and Touchque extends it (180 s): the switch from the
+        // offline QR answers the live expiry, not the first one, and the new token keeps it.
+        self::$api->escalate($first['body']['touchque']['requestId']);
+        $passkey = $poll($kept['body']['token']);
+        $live = Steps::isoMs($passkey['body']['touchque']['expiresAt']);
+        $this->assertSame('passkey_required', $passkey['body']['touchque']['state']);
+        $this->assertGreaterThan($rx + 100000, $live, 'the extended expiry, not the first one');
+        $this->assertSame($live, self::claims($passkey['body']['token'])['rx']);
+        $again = $poll($passkey['body']['token']);
+        $this->assertSame(['passkey_required', Steps::isoOf($live)], [$again['body']['touchque']['state'], $again['body']['touchque']['expiresAt']]);
+    }
+
+    public function testAPushMovedToAPasskeyAnswersItsExtendedExpiry(): void
+    {
+        $this->cleanOpts();
+        $user = 'expiry-escalated@acme.com';
+        self::$api->link($user);
+        $tq = $this->client();
+        $first = Guard::run($tq, $user, 'LOGIN');
+        $rx = Steps::isoMs($first['body']['touchque']['expiresAt']);
+        self::$api->escalate($first['body']['touchque']['requestId']);
+        $poll = Guard::run($tq, $user, 'LOGIN', null, null, null, null, $first['body']['token']);
+        $live = Steps::isoMs($poll['body']['touchque']['expiresAt']);
+        $this->assertSame('passkey_required', $poll['body']['touchque']['state']);
+        $this->assertGreaterThan($rx + 100000, $live);
+        $this->assertSame($live, self::claims($poll['body']['token'])['rx']);
+    }
+
+    public function testWithoutALiveExpiryAPollFallsBackToTheToken(): void
+    {
+        // A status answer without expiresAt (an older API): the token's rx; without rx either, none (5.1).
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', 'http://127.0.0.1:9'));
+        $tq->login = $this->createMock(Login::class);
+        $tq->login->method('status')->willReturn(['status' => 'PENDING']);
+        $rx = (int)(microtime(true) * 1000) + 60000;
+        $claims = ['u' => 'old@acme.com', 'a' => 'LOGIN', 'd' => '', 'r' => null, 'st' => 'waiting', 'rid' => 'r1',
+            'n' => null, 'oc' => null, 'exp' => (int)(microtime(true) * 1000) + 600000, 'rx' => $rx];
+        $poll = Guard::run($tq, 'old@acme.com', 'LOGIN', null, null, null, null, Steps::signGuardToken('test_secret', $claims));
+        $this->assertSame(['waiting', Steps::isoOf($rx)], [$poll['body']['touchque']['state'], $poll['body']['touchque']['expiresAt']]);
+        $this->assertSame($rx, self::claims($poll['body']['token'])['rx']);
+
+        unset($claims['rx']);
+        $old = Guard::run($tq, 'old@acme.com', 'LOGIN', null, null, null, null, Steps::signGuardToken('test_secret', $claims));
+        $this->assertSame('waiting', $old['body']['touchque']['state']);
+        $this->assertArrayNotHasKey('expiresAt', $old['body']['touchque']);
+        $this->assertArrayNotHasKey('rx', self::claims($old['body']['token']));
+    }
+
+    public function testAPasskeyRequestRepeatsItsExpiresAt(): void
+    {
+        $this->cleanOpts(['passkeyOnly' => true]);
+        try {
+            $user = 'expiry-passkey@acme.com';
+            self::$api->link($user);
+            $tq = $this->client();
+            $first = Guard::run($tq, $user, 'LOGIN');
+            $this->assertSame('passkey_required', $first['body']['touchque']['state']);
+            $expiresAt = Steps::isoOf(Steps::isoMs($first['body']['touchque']['expiresAt']));
+            $poll = Guard::run($tq, $user, 'LOGIN', null, null, null, null, $first['body']['token']);
+            $this->assertSame(['passkey_required', $expiresAt], [$poll['body']['touchque']['state'], $poll['body']['touchque']['expiresAt']]);
+        } finally {
+            $this->cleanOpts();
+        }
+    }
+
+    public function testATokenWithoutRxTakesTheLiveExpiry(): void
+    {
+        $this->cleanOpts();
+        $user = 'expiry-old@acme.com';
+        self::$api->link($user);
+        $tq = $this->client();
+        $first = Guard::run($tq, $user, 'LOGIN');
+        $claims = self::claims($first['body']['token']);
+        unset($claims['rx']);
+        $poll = Guard::run($tq, $user, 'LOGIN', null, null, null, null, Steps::signGuardToken('test_secret', $claims));
+        $expiry = Steps::isoMs($first['body']['touchque']['expiresAt']);
+        $this->assertSame(['waiting', Steps::isoOf($expiry)], [$poll['body']['touchque']['state'], $poll['body']['touchque']['expiresAt']]);
+        $this->assertSame($expiry, self::claims($poll['body']['token'])['rx']);
     }
 
     public function testTheEnrollExpiryComesFromTtlMsWhenTheApiSendsNoDate(): void

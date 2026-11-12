@@ -56,7 +56,9 @@ your controller exactly once, with `$request->attributes->get('touchque')`
 set to the approval.
 
 A frontend of your own: while the first-time QR is up, polls answer `{"state": "enroll", "expiresAt": ...}`
-without `enroll`, so keep showing the QR you have; a new one comes with `enroll.qrCodeDataUrl`.
+without `enroll`, so keep showing the QR you have. About 15 s before it expires a new QR comes with
+`enroll.qrCodeDataUrl` and new recovery codes: the old QR and the old codes stop working. The other states
+are listed under [Guard inside your handler](#guard-inside-your-handler).
 
 The signed-in user comes from Laravel's own auth (`$request->user()`). For a
 login route (no signed-in user yet), extend `TouchqueMiddleware` and override
@@ -69,7 +71,7 @@ A guarded route answers **500** with `Cache-Control: no-store` and the body
 logs it once, through Laravel's logger: `[Touchque] TQ_API_KEY and TQ_API_SECRET are not set: routes
 guarded by Touchque answer 500 misconfigured.` A 500 rather than a 503: it is a deploy mistake for your
 monitoring to catch, not an outage to retry. `@touchque/web` shows "Approvals are not set up correctly
-on this site."
+on this site." `Guard::run(null, …)` in your own handler answers the same.
 
 **Refusal headers.** Every answer of 400 and above carries `X-Touchque-State: <state>`, plus
 `X-Touchque-Reason: <reason>` when the step has one; `@touchque/web` 2.1.0 reads the step from them when
@@ -141,7 +143,8 @@ if ($account->ownerEmail !== $user || $account->balance < $amount) {
 
 $in = Guard::inputFromHeaders(fn (string $name) => $request->header($name)); // any case-insensitive getter
 $result = Guard::run(
-    $tq, $user, 'SEND_MONEY',
+    null, // the default client: yours (setDefaultClient), your Laravel binding, or TQ_API_KEY / TQ_API_SECRET
+    $user, 'SEND_MONEY',
     ['Amount' => "$amount EUR", 'To' => $account->iban], // shown on the phone, bound to the approval
     null, $clientIp, $userAgent,
     $in['token'], $in['offline'], $in['code'], $in['codeType']
@@ -152,32 +155,57 @@ if (isset($result['approved'])) {
     return json(['sent' => true], 200);
 }
 
-// Cache-Control: no-store, Retry-After on 423 / 429, X-Touchque-State (and -Reason) on 400 and above
-return json($result['body'], $result['status'], Guard::headers($result)); // your framework's JSON response
+// Not approved (yet): the status, headers and body the middleware sends for the same result.
+$answer = Guard::response($result);
+return json($answer['body'], $answer['status'], $answer['headers']); // your framework's JSON response
 ```
 
+- **The client.** `null` is `Guard::defaultClient()`: the client you gave `Guard::setDefaultClient()`,
+  else your Laravel binding of `Touchque` (`$app->bind/singleton(Touchque::class, ...)`, resolved on each
+  request; a contextual binding for `TouchqueMiddleware` is not used), else one built from `TQ_API_KEY` /
+  `TQ_API_SECRET` (and `TQ_API_URL`) on the first request that needs it and kept once built. So nothing
+  throws at startup. While none can be built the answer is 500 `misconfigured` (401 `unauthenticated`
+  without a user), logged once (through Laravel's logger in a Laravel app), and the next request tries
+  again. `Guard::isStatusPoll()` takes `null` the same way.
+- **Your own client for `null`** (your `Config`: a logger, a base URL): call
+  `Guard::setDefaultClient(new Touchque(new Config(null, null, null, 10000, $logger)))` once at startup;
+  `Guard::setDefaultClient(null)` forgets it: the next call uses your Laravel binding of `Touchque`, else
+  builds from the environment.
+  To fail fast at startup instead of answering 500, call `Guard::defaultClient()` there: it throws
+  `TouchqueConfigException` naming what is missing.
 - **202** `{"touchque": step, "token": "..."}`: show the step and send the same request again with
-  `X-Touchque-Token: <token>` until it is approved (`@touchque/web` does this loop).
+  `X-Touchque-Token: <token>` until it is approved (`@touchque/web` does this loop). While it waits
+  (`waiting`, `passkey_required`), every answer carries the request's `expiresAt`, as Touchque has it now
+  (a push moved to a passkey during a call gets more time): stop polling once it is past.
 - **200** with `$result['approved']`: run the action once. The approval is used up there: the same
-  token never approves twice.
-- **401, 403, 408, 423, 429, 500, 503**: send `status` and `body` as they are, with
-  `Guard::headers($result)`: `Cache-Control: no-store`, `Retry-After` on 423 and 429, `X-Touchque-State`
-  and `X-Touchque-Reason`. For your own error shape, `Guard::errorBody($result, $errorBody)` judges
-  `json_encode()` of what your callable returns, as it is (it does not convert Laravel's `Arrayable` /
-  `Jsonable` as the middleware does): a JSON object gets `touchque`. It throws when your callable
-  throws or the result cannot be encoded. Encode `null` yourself (Laravel's `JsonResponse(null)` sends `{}`).
+  token never approves twice. `Guard::response()` throws for it.
+- **401, 403, 408, 423, 429, 500, 503**: `Guard::response($result)` gives the status, the body as it is
+  and the headers: `Cache-Control: no-store`, `Retry-After` on 423 and 429, `X-Touchque-State` and
+  `X-Touchque-Reason`. For your own error shape, pass your callable:
+  `Guard::response($result, fn (array $r) => ['message' => $r['message'], 'code' => $r['code']])`. The
+  rules are the middleware's `errorBody` (400 and above only; a JSON object gets `touchque`; your
+  callable gets a copy of the step), except that `json_encode()` judges what it returns as it is: Laravel's
+  `Arrayable` / `Jsonable` are not converted. A callable that throws, or a result that cannot be encoded,
+  is logged and the default body sent; give `Guard::response()` your client as a third argument for its
+  logger (default: Laravel's logger in a Laravel app). Encode `null` yourself (Laravel's
+  `JsonResponse(null)` sends `{}`).
 - **First-time QR**: a user with no phone linked gets the step `enroll` with `enroll.qrCodeDataUrl`, the
   recovery codes and `enroll.expiresAt`. While the first-time QR is up, polls answer
-  `{state: "enroll", expiresAt}` without `enroll`: keep showing the QR you have. A new QR comes with
-  `enroll.qrCodeDataUrl` when the old one expired. Pages on `@touchque/web` need 2.1.0.
+  `{state: "enroll", expiresAt}` without `enroll`: keep showing the QR you have. About 15 s before it
+  expires a poll brings a new QR with `enroll.qrCodeDataUrl` and new recovery codes: the old QR and the
+  old codes stop working. Pages on `@touchque/web` need 2.1.0.
+- **No linking QR** (`Guard::run()`'s 12th argument `$enroll` set to `false`, as the relay's pre-auth
+  `POST /login` and passkey registration do): a user with no phone gets 202
+  `{"touchque": {"state": "enroll", "reason": "enrollment_off"}}`. It is final: stop polling and tell
+  them to link the Touchque app first.
+- **Other 202 states** (`passkey_required`, `offline`, an `enroll` with a `reason`) need `@touchque/web`,
+  or your own UI following the contract.
 - **Rate limits**: `Guard::isStatusPoll()` tells a poll from a new attempt (a poll only reads the status).
   If you count attempts per user, pass `Guard::run()` a last argument `$beforeStart`: a callable it calls
-  when a first-time QR poll starts after all (the user linked, or the QR expired), to charge that start;
+  when a first-time QR poll starts after all (the user linked, or the QR is gone or within about 15 s of
+  expiring), to charge that start;
   return a result to answer instead, or null to go on (anything else throws). The relay does this for
   `POST /login`.
-
-`Guard::run()` needs a client: `new Touchque()` throws `TouchqueConfigException` when a key is missing,
-so build it where you handle that (the Laravel middleware answers 500 `misconfigured` for you).
 
 ## Relay routes for `@touchque/web`
 
@@ -211,11 +239,13 @@ TouchqueRelay::routes(app('router'), 'touchque');
 
 The signed-in user for enrollment and passkey management defaults to
 `$request->user()` (override with `'getUserId' => fn (Request $r) => ...`).
+Without `getLoginUser`, `POST /login` never shows the linking QR: a user with no
+phone gets 202 `{"touchque": {"state": "enroll", "reason": "enrollment_off"}}`.
 Pre-auth routes are rate limited per IP and per username (20 / 5 per minute per
 route; `429 RATE_LIMITED` + `Retry-After`). Polls of an approval on its way have
 their own per-IP budget; a first-time QR poll that starts after all (the user
-linked, or the QR expired) counts against the username's budget like a new
-attempt. Guard answers of 400 and above carry `X-Touchque-State` (and
+linked, or the QR is gone or within about 15 s of expiring) counts against the
+username's budget like a new attempt. Guard answers of 400 and above carry `X-Touchque-State` (and
 `X-Touchque-Reason`). The default counter store is in
 memory, which under PHP-FPM starts empty on every request: give it a shared
 store by implementing `Touchque\Relay\RateLimitStore` over APCu or Redis, or
@@ -487,7 +517,7 @@ has `assurance` `['method' => 'silent', 'phishingResistant' => false]`, `confirm
 and `reasons` (`known_browser`, `recent_approval`, `same_phone`, `familiar_network`, `no_risk_signal`); the relay
 calls `onAuthenticated` with `'via' => 'silent'`. Anything else, and any error in the check, starts the usual push
 with the proof attached, so its approval makes the browser known. Polling with the token never checks again.
-`Guard::run()` takes the same option (its last two arguments: `$browserProof`, `$silentSignIn`).
+`Guard::run()` takes the same option (its 13th and 14th arguments: `$browserProof`, `$silentSignIn`).
 
 Touchque only lets a sign-in through silently when all of this holds: the browser proved its key and was approved
 on the phone (a confirmed push, not one approved during a call, or a passkey) within your `maxAgeSeconds` and at most
@@ -637,7 +667,9 @@ When a sign-in needs a code another service sent the person (a text message, Wha
 
 ```php
 $key = \Touchque\CodeReply::newKey();   // keep $key['privateKey'] for this request
-$sent = $tq->login->request($user, reply: ['kind' => 'code', 'key' => $key['publicKey'], 'channel' => 'sms', 'target' => '+**********26']);
+// the 20th argument (PHP 8: reply: [...])
+$sent = $tq->login->request($user, 'LOGIN', null, null, null, false, false, null, null, null, null, null, null, null, null, null, null, null, null,
+    ['kind' => 'code', 'key' => $key['publicKey'], 'channel' => 'sms', 'target' => '+**********26']);
 $status = $tq->login->status($sent['requestId']);   // once CONFIRMED
 $code = isset($status['reply']) ? \Touchque\CodeReply::open($key['privateKey'], $sent['requestId'], $status['reply']['ct']) : null;
 ```
@@ -701,7 +733,7 @@ See [SECURITY.md](https://github.com/Touchque/touchque-php/blob/main/SECURITY.md
 
 ## Logging
 
-The SDK writes nothing to `error_log()` on its own. To see its own problems (a misconfigured guard, a failed `$onChallenge`, a relay without `getLoginUser`), pass a PSR-3 logger or a `callable(string $level, string $message)`: `new Config(logger: $logger)`, or `new Config(debug: true)` for `error_log()`. Lines carry an error's class and message, never the request. When `TouchqueMiddleware` cannot build its client (a missing key), there is no Config to carry your logger: it logs that once through Laravel's logger.
+The SDK writes nothing to `error_log()` on its own. To see its own problems (a misconfigured guard, a failed `$onChallenge`, a relay without `getLoginUser`), pass a PSR-3 logger or a `callable(string $level, string $message)` as `Config`'s fifth argument: `new Config(null, null, null, 10000, $logger)` (keys and URL from the environment, 10 s timeout), or `new Config(null, null, null, 10000, null, true)` for `error_log()`. Lines carry an error's class and message, never the request. When the default client cannot be built (a missing key: `TouchqueMiddleware`, `Guard::run(null, …)`), there is no Config to carry your logger: that is logged once through Laravel's logger in a Laravel app, and nowhere outside one. For `Guard::run(null, …)` to log through your logger otherwise, give `Guard::setDefaultClient()` a client built with it (or bind one in Laravel's container).
 
 ## License
 

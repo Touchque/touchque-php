@@ -8,8 +8,6 @@ use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Contracts\Support\Jsonable;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Log;
-use Touchque\Config;
 use Touchque\Exceptions\TouchqueConfigException;
 use Touchque\Guard;
 use Touchque\Touchque;
@@ -117,9 +115,6 @@ class TouchqueMiddleware
      */
     protected $errorBody = null;
 
-    /** The client could not be built: logged once per process. */
-    private static bool $loggedUnconfigured = false;
-
     /**
      * @param Touchque|null $touchque the client; null (the default) resolves it
      *   from Laravel's container (your binding, or TQ_API_KEY / TQ_API_SECRET) on
@@ -154,7 +149,8 @@ class TouchqueMiddleware
         try {
             $touchque = $this->client();
         } catch (TouchqueConfigException $err) {
-            $this->logUnconfigured($err);
+            // Logged once per process, shared with Guard::run(null, ...).
+            Guard::logUnconfigured($err);
             return $this->respond($user ? Guard::misconfigured() : Guard::unauthenticated());
         }
 
@@ -261,21 +257,21 @@ class TouchqueMiddleware
         return $app->make(Touchque::class);
     }
 
-    /** The JSON answer for a result that is not an approval: Guard::headers(), your errorBody. */
+    /** The JSON answer for a result that is not an approval: Guard::response() with your errorBody. */
     private function respond(array $result): JsonResponse
     {
-        $headers = Guard::headers($result);
-        if ($this->errorBody !== null && $result['status'] >= 400) {
-            try {
-                $errorBody = $this->errorBody;
-                $body = Guard::errorBody($result, static fn (array $refusal) => self::asJsonResponseEncodes($errorBody($refusal)));
-                // Encoded here so that null is sent as null (JsonResponse would send {}).
-                return new JsonResponse(json_encode($body, JSON_THROW_ON_ERROR), $result['status'], $headers, 0, true);
-            } catch (\Throwable $err) {
-                $this->logError('[Touchque] errorBody failed: ' . $err->getMessage());
-            }
+        $errorBody = $this->errorBody;
+        $answer = Guard::response(
+            $result,
+            $errorBody === null ? null : static fn (array $refusal) => self::asJsonResponseEncodes($errorBody($refusal)),
+            $this->touchque
+        );
+        if ($answer['body'] === null) {
+            // Encoded here so that null is sent as null (JsonResponse would send {}).
+            return new JsonResponse('null', $answer['status'], $answer['headers'], 0, true);
         }
-        return new JsonResponse($result['body'], $result['status'], $headers);
+        // The same bytes, and getOriginalContent() is the body.
+        return new JsonResponse($answer['body'], $answer['status'], $answer['headers']);
     }
 
     /**
@@ -298,30 +294,5 @@ class TouchqueMiddleware
             return $value->toArray();
         }
         return $value;
-    }
-
-    private function logUnconfigured(TouchqueConfigException $err): void
-    {
-        if (self::$loggedUnconfigured) {
-            return;
-        }
-        self::$loggedUnconfigured = true;
-        $this->logError($err->getMessage() === Config::MISSING_KEYS
-            ? '[Touchque] TQ_API_KEY and TQ_API_SECRET are not set: routes guarded by Touchque answer 500 misconfigured.'
-            : '[Touchque] ' . $err->getMessage());
-    }
-
-    /** Through the client's logger; before a client exists, through Laravel's (outside an app: nowhere). */
-    private function logError(string $message): void
-    {
-        if ($this->touchque !== null) {
-            $this->touchque->log('error', $message);
-            return;
-        }
-        try {
-            Log::error($message);
-        } catch (\Throwable $e) {
-            // no Laravel logger here; a logger must never break a request
-        }
     }
 }

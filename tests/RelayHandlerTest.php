@@ -296,8 +296,9 @@ class RelayHandlerTest extends TestCase
         $before = count(array_filter(self::$api->calls(), fn ($c) => $c['path'] === '/auth/generate-secret'));
         $res = $this->call($this->handler($this->realClient(), ['rateLimit' => false]), 'POST', '/login', ['externalUsername' => $user]);
         $this->assertSame(202, $res->getStatus());
-        $this->assertSame('enroll', $res->getBody()['touchque']['state']);
-        $this->assertArrayNotHasKey('enroll', $res->getBody()['touchque']);
+        // No QR, and the reason says so: a page stops polling.
+        $this->assertSame(['state' => 'enroll', 'reason' => 'enrollment_off'], $res->getBody()['touchque']);
+        $this->assertSame(['Cache-Control' => 'no-store'], $res->getHeaders());
         $after = count(array_filter(self::$api->calls(), fn ($c) => $c['path'] === '/auth/generate-secret'));
         $this->assertSame($before, $after);
     }

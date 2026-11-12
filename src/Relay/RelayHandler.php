@@ -43,6 +43,8 @@ use Touchque\Touchque;
  *   getLoginUser    fn($req): ?string — the user who passed your first factor. STRONGLY RECOMMENDED.
  *                   When set, /login and the offline routes act for this user and ignore any
  *                   username in the body (401 FIRST_FACTOR_REQUIRED when it returns nothing).
+ *                   Without it /login never shows the linking QR: a user with no phone gets 202
+ *                   {touchque: {state: 'enroll', reason: 'enrollment_off'}}, as passkey registration does.
  *   rateLimit       array|false — ['windowMs' => 60000, 'perIp' => 20, 'perUser' => 5,
  *                   'store' => RateLimitStore]; false if you rate limit in front of the relay.
  *                   Under PHP-FPM pass a shared store (see RateLimitStore).
@@ -615,14 +617,11 @@ class RelayHandler
             ->setHeader('Retry-After', (string)$wait);
     }
 
-    /** A guard answer that is not an approval, with Guard::headers() (no-store, Retry-After, X-Touchque-State / -Reason). */
+    /** A guard answer that is not an approval, as Guard::response() gives it (no-store, Retry-After, X-Touchque-State / -Reason). */
     private static function guardResponse(array $result): RelayResponse
     {
-        $res = new RelayResponse($result['status'], $result['body']);
-        foreach (Guard::headers($result) as $name => $value) {
-            $res->setHeader($name, $value);
-        }
-        return $res;
+        $answer = Guard::response($result);
+        return new RelayResponse($answer['status'], $answer['body'], $answer['headers']);
     }
 
     private static function unauthorized(): RelayResponse

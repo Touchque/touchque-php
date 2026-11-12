@@ -12,11 +12,16 @@ use Touchque\Exceptions\TouchqueNetworkException;
  *
  * Contract (same in every Touchque server SDK):
  *   1st request            -> 202 {"touchque": step, "token": ...}   show the step in your UI
- *   repeat with the token   -> 202 while waiting, then the protected action runs once
+ *   repeat with the token   -> 202 while waiting (each answer carries the request's live `expiresAt`),
+ *                              then the protected action runs once
  *   refused                 -> 403 / 408 / 423 / 429 {"touchque": {"state": ..., ...}}
  *   first-time QR up        -> 202 {"touchque": {"state": "enroll", "expiresAt": ...}} with no
- *                              `enroll`: keep showing the QR; a new one comes with
- *                              `enroll.qrCodeDataUrl` once the old one expired
+ *                              `enroll`: keep showing the QR; about 15 s before it expires a new
+ *                              one comes with `enroll.qrCodeDataUrl` and new recovery codes
+ *   no phone, `$enroll` off -> 202 {"touchque": {"state": "enroll", "reason": "enrollment_off"}}: final
+ *
+ * `run(null, ...)` uses defaultClient() (setDefaultClient() replaces it);
+ * `response()` turns a result into the status, headers and body to send.
  *
  * Request headers the browser sends back:
  *   X-Touchque-Token         the token from the last response
@@ -45,6 +50,18 @@ class Guard
 
     /** A first-time QR this close to its expiry is replaced instead of kept on screen. */
     private const ENROLL_MARGIN_MS = 15000;
+
+    /** Steps whose token carries the request's expiry (claim `rx`): every poll answers an expiresAt. */
+    private const EXPIRING = ['waiting', 'passkey_required'];
+
+    /** The client given to setDefaultClient(): it wins over a container binding and the environment. */
+    private static ?Touchque $defaultClient = null;
+
+    /** The client built from the environment for `run(null, ...)`: built on first use, kept once built. */
+    private static ?Touchque $environmentClient = null;
+
+    /** The default client could not be built: logged once per process. */
+    private static bool $loggedUnconfigured = false;
 
     /** The refusal `message` for a state when the guard set none (anything else: "The approval was refused."). */
     private const REFUSAL_MESSAGES = [
@@ -118,9 +135,11 @@ class Guard
      * push limit (with a 1.5 s poll the 6th poll was refused after 7.5 s). Such an
      * enroll poll can still start (the user linked, or the QR is gone): relays
      * charge that through run()'s `$beforeStart`. Renewing an expiring QR counts.
+     * `$client`: as run()'s; null is the default client, and false while it
+     * cannot be built.
      */
     public static function isStatusPoll(
-        Touchque $client,
+        ?Touchque $client,
         ?string $user,
         string $action,
         ?array $details = null,
@@ -130,6 +149,10 @@ class Guard
         ?string $code = null
     ): bool {
         if (!$user || !$token || $offline || $code) {
+            return false;
+        }
+        $client = $client ?? self::defaultClientOrNull();
+        if ($client === null) {
             return false;
         }
         $claims = Steps::verifyGuardToken($client->getApiSecret(), $token);
@@ -237,10 +260,142 @@ class Guard
     }
 
     /**
+     * The HTTP answer for a result of run() that is not an approval, exactly as
+     * TouchqueMiddleware and the relay send it:
+     * `['status' => int, 'headers' => array, 'body' => mixed]`. Send `body` with
+     * your framework's JSON response (encode `null` yourself: Laravel's
+     * `JsonResponse(null)` sends `{}`).
+     *
+     * `headers` are headers(): `Cache-Control: no-store`, `Retry-After` on 423
+     * and 429, `X-Touchque-State` and `X-Touchque-Reason` on 400 and above.
+     * `body` is the result's body; for 400 and above with `$errorBody`, what
+     * errorBody() makes of it. A callable that throws, or a result that cannot
+     * be encoded, is logged (`[Touchque] errorBody failed: <message>`) and the
+     * default body sent: through `$client`'s logger, else Laravel's logger in a
+     * Laravel app, else nowhere.
+     *
+     * @throws \InvalidArgumentException for an approval: run your action instead
+     */
+    public static function response(array $result, ?callable $errorBody = null, ?Touchque $client = null): array
+    {
+        if (isset($result['approved'])) {
+            throw new \InvalidArgumentException('Guard::response(): the result is an approval: run your action instead.');
+        }
+        $body = $result['body'];
+        if ($errorBody !== null && $result['status'] >= 400) {
+            try {
+                $body = self::errorBody($result, $errorBody);
+            } catch (\Throwable $err) {
+                self::logError($client, '[Touchque] errorBody failed: ' . $err->getMessage());
+            }
+        }
+        return ['status' => $result['status'], 'headers' => self::headers($result), 'body' => $body];
+    }
+
+    /**
+     * The client `run(null, ...)` and `isStatusPoll(null, ...)` use:
+     *   1. the one given to setDefaultClient();
+     *   2. else, in a Laravel app with a binding of `Touchque`
+     *      (`$app->bind/singleton(Touchque::class, ...)`), the container's, resolved
+     *      on each call (the container owns its lifetime); a contextual binding for
+     *      TouchqueMiddleware is not used;
+     *   3. else one built from TQ_API_KEY / TQ_API_SECRET (and TQ_API_URL) on
+     *      first use and kept once built.
+     * Call it at startup to fail fast: it throws TouchqueConfigException, naming
+     * the problem, while no client can be built (a build that failed is tried
+     * again on the next call).
+     *
+     * @throws TouchqueConfigException
+     */
+    public static function defaultClient(): Touchque
+    {
+        if (self::$defaultClient !== null) {
+            return self::$defaultClient;
+        }
+        if (class_exists(\Illuminate\Container\Container::class)) {
+            $app = \Illuminate\Container\Container::getInstance();
+            if ($app->bound(Touchque::class)) {
+                return $app->make(Touchque::class);
+            }
+        }
+        if (self::$environmentClient === null) {
+            self::$environmentClient = new Touchque();
+        }
+        return self::$environmentClient;
+    }
+
+    /**
+     * Makes `$client` the default client of `run(null, ...)` and
+     * `isStatusPoll(null, ...)`, over a container binding and the environment:
+     * the way to give them your own Config (a logger, a base URL). null forgets
+     * it (and the client built from the environment): the next call uses a
+     * Laravel binding of `Touchque`, else builds from the environment.
+     */
+    public static function setDefaultClient(?Touchque $client): void
+    {
+        self::$defaultClient = $client;
+        self::$environmentClient = null;
+    }
+
+    /** defaultClient(), or null while it cannot be built (logged once per process). */
+    private static function defaultClientOrNull(): ?Touchque
+    {
+        try {
+            return self::defaultClient();
+        } catch (TouchqueConfigException $err) {
+            self::logUnconfigured($err);
+            return null;
+        }
+    }
+
+    /**
+     * @internal Logs once per process that the default client cannot be built
+     * (`run(null, ...)`, TouchqueMiddleware). There is no Config to carry your
+     * logger: Laravel's logger in a Laravel app, else nowhere.
+     */
+    public static function logUnconfigured(TouchqueConfigException $err): void
+    {
+        if (self::$loggedUnconfigured) {
+            return;
+        }
+        self::$loggedUnconfigured = true;
+        self::logError(null, $err->getMessage() === Config::MISSING_KEYS
+            ? '[Touchque] TQ_API_KEY and TQ_API_SECRET are not set: routes guarded by Touchque answer 500 misconfigured.'
+            : '[Touchque] ' . $err->getMessage());
+    }
+
+    /** Through the client's logger; without a client, through Laravel's in a Laravel app, else nowhere. */
+    private static function logError(?Touchque $client, string $message): void
+    {
+        if ($client !== null) {
+            $client->log('error', $message);
+            return;
+        }
+        if (!class_exists(\Illuminate\Support\Facades\Log::class)) {
+            return;
+        }
+        try {
+            \Illuminate\Support\Facades\Log::error($message);
+        } catch (\Throwable $e) {
+            // outside a Laravel app; a logger must never break a request
+        }
+    }
+
+    /**
      * Runs one step of the guard. Returns either
      * `["approved" => [...], "status" => 200]` (run your protected action) or
      * `["status" => <code>, "body" => ["touchque" => step, "token" => ...]]`
-     * (send that JSON body with that status code and `headers()`).
+     * (send it as response() gives it: that status, `headers()` and that JSON body).
+     *
+     * `$client`: your Touchque, or null for defaultClient(): the one given to
+     * setDefaultClient(), else a Laravel binding of `Touchque`, else one built
+     * from TQ_API_KEY / TQ_API_SECRET on first use and kept once built (a
+     * failed build is tried again on the next request). While it cannot be
+     * built the answer is 500 `misconfigured` (401 `unauthenticated` without a
+     * user), logged once per process through Laravel's logger in a Laravel app.
+     *
+     * `$enroll = false` (a guard that may not show the linking QR): a user with
+     * no phone gets 202 `{"state": "enroll", "reason": "enrollment_off"}`.
      *
      * Silent sign-ins: `$browserProof` is the browser's device-bound key proof
      * (`X-Touchque-Browser`), passed through untouched and attached to the
@@ -261,7 +416,7 @@ class Guard
      * user's budget there, since isStatusPoll() exempted that poll.
      */
     public static function run(
-        Touchque $client,
+        ?Touchque $client,
         ?string $user,
         string $action,
         ?array $details = null,
@@ -281,6 +436,10 @@ class Guard
         if (!$user) {
             return self::unauthenticated();
         }
+        $client = $client ?? self::defaultClientOrNull();
+        if ($client === null) {
+            return self::misconfigured();
+        }
 
         $norm = Steps::normalizeDetails($details);
         $base = ['u' => $user, 'a' => $action, 'd' => Steps::detailsDigest($details), 'r' => $referenceId];
@@ -293,10 +452,13 @@ class Guard
             // A first-time QR: its token carries when the QR expires (ee), so polls keep it on screen.
             $ee = ($step['state'] ?? null) === 'enroll' && !empty($step['enroll']['qrCodeDataUrl'])
                 ? Steps::isoMs($step['enroll']['expiresAt'] ?? null) : null;
+            // A push or passkey: its token carries when the request expires (rx), for polls without a live expiry.
+            $rx = in_array($step['state'] ?? null, self::EXPIRING, true) ? Steps::isoMs($step['expiresAt'] ?? null) : null;
             $claims = array_merge($base, [
                 'st' => $step['state'], 'rid' => $step['requestId'] ?? null, 'n' => $step['number'] ?? null,
                 'oc' => $step['offline']['challengeId'] ?? null, 'exp' => (int)(microtime(true) * 1000) + self::TOKEN_TTL_MS,
-            ], isset($step['caseCode']) ? ['cc' => $step['caseCode']] : [], $ee !== null ? ['ee' => $ee] : [], $extra);
+            ], isset($step['caseCode']) ? ['cc' => $step['caseCode']] : [], $ee !== null ? ['ee' => $ee] : [],
+                $rx !== null ? ['rx' => $rx] : [], $extra);
             return ['status' => self::STATUS[$step['state']], 'body' => ['touchque' => $step, 'token' => Steps::signGuardToken($secret, $claims)]];
         };
 
@@ -304,6 +466,12 @@ class Guard
             $claims = Steps::verifyGuardToken($secret, $token);
             $bound = ($claims && $claims['u'] === $base['u'] && $claims['a'] === $base['a']
                 && $claims['d'] === $base['d'] && $claims['r'] === $base['r']) ? $claims : null;
+            // The request's expiry (rx) stays with it: waiting / passkey answers carry it as expiresAt (the
+            // live one from Touchque's status answer when there is one), and the offline steps carry it on.
+            $rx = is_int($bound['rx'] ?? null) ? $bound['rx'] : null;
+            $keepRx = $rx !== null ? ['rx' => $rx] : [];
+            $expiring = fn (array $step, ?int $live = null): array => ($live ?? $rx) !== null
+                ? $step + ['expiresAt' => Steps::isoOf($live ?? $rx)] : $step;
 
             // Offline: the user typed the code from the phone.
             if ($bound && $code && (($bound['st'] ?? null) === 'offline' || $codeType === 'totp')) {
@@ -322,10 +490,10 @@ class Guard
                     ]];
                 }
                 if (($res['reason'] ?? null) === 'invalid_code' && !$isTotp) {
-                    return $issue(['state' => 'offline', 'offline' => ['challengeId' => (string)($bound['oc'] ?? ''), 'attemptsLeft' => $res['attemptsLeft'] ?? null]], ['oc' => $bound['oc'] ?? null, 'rid' => $bound['rid'] ?? null, 'n' => $bound['n'] ?? null]);
+                    return $issue(['state' => 'offline', 'offline' => ['challengeId' => (string)($bound['oc'] ?? ''), 'attemptsLeft' => $res['attemptsLeft'] ?? null]], ['oc' => $bound['oc'] ?? null, 'rid' => $bound['rid'] ?? null, 'n' => $bound['n'] ?? null] + $keepRx);
                 }
                 if (($res['reason'] ?? null) === 'invalid_code') {
-                    return $issue(['state' => 'offline', 'reason' => 'invalid_code'], ['oc' => $bound['oc'] ?? null, 'rid' => $bound['rid'] ?? null, 'n' => $bound['n'] ?? null]);
+                    return $issue(['state' => 'offline', 'reason' => 'invalid_code'], ['oc' => $bound['oc'] ?? null, 'rid' => $bound['rid'] ?? null, 'n' => $bound['n'] ?? null] + $keepRx);
                 }
                 // The phone rejected the push this QR belongs to: the whole sign-in is over.
                 if (($res['reason'] ?? null) === 'request_rejected') {
@@ -333,7 +501,7 @@ class Guard
                 }
                 // The push now waits for a passkey (Vishing Shield): no code may finish it.
                 if (($res['reason'] ?? null) === 'passkey_required' && !empty($bound['rid'])) {
-                    return $issue(['state' => 'passkey_required', 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null], ['n' => $bound['n'] ?? null]);
+                    return $issue($expiring(['state' => 'passkey_required', 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null]), ['n' => $bound['n'] ?? null]);
                 }
                 return $issue(['state' => ($res['reason'] ?? null) === 'expired' ? 'expired' : 'blocked', 'reason' => $res['reason'] ?? 'offline_failed']);
             }
@@ -351,14 +519,14 @@ class Guard
                     if (!empty($ch['challengeCode'])) {
                         $offlineStep['challengeCode'] = $ch['challengeCode'];
                     }
-                    return $issue(['state' => 'offline', 'offline' => $offlineStep], ['rid' => $rid, 'n' => $ch['challengeCode'] ?? ($bound['n'] ?? null)]);
+                    return $issue(['state' => 'offline', 'offline' => $offlineStep], ['rid' => $rid, 'n' => $ch['challengeCode'] ?? ($bound['n'] ?? null)] + $keepRx);
                 } catch (TouchqueAPIException $err) {
                     if ($err->getStatus() === 409 && ($err->getErrorCode() ?? ($err->getData()['error'] ?? null)) === 'request_rejected') {
                         return $issue(['state' => 'rejected', 'requestId' => $bound['rid'] ?? null, 'reason' => 'request_rejected']);
                     }
                     // The push it would follow now waits for a passkey (Vishing Shield): no QR, run the passkey.
                     if (!empty($bound['rid']) && ($err->getErrorCode() ?? ($err->getData()['error'] ?? null)) === 'passkey_required') {
-                        return $issue(['state' => 'passkey_required', 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null], ['n' => $bound['n'] ?? null]);
+                        return $issue($expiring(['state' => 'passkey_required', 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null]), ['n' => $bound['n'] ?? null]);
                     }
                     if ($err->getStatus() < 500) {
                         return $issue(['state' => 'blocked', 'reason' => $err->getErrorCode() ?? ($err->getData()['error'] ?? 'offline_unavailable')]);
@@ -371,6 +539,8 @@ class Guard
             // the action once approved. While the QR is up a phone-side REJECT ends the attempt at once.
             if ($bound && !empty($bound['rid']) && in_array($bound['st'] ?? null, ['waiting', 'passkey_required', 'offline'], true)) {
                 $now = Steps::check($client, $bound['rid']);
+                // The live expiry: a switch to a passkey during a call extends it. The new token keeps it (rx).
+                $live = Steps::isoMs($now['expiresAt'] ?? null);
                 if ($now['state'] === 'approved') {
                     try {
                         return ['status' => 200, 'approved' => Steps::complete($client, $bound['rid'], $user, $action, $details, $referenceId)];
@@ -384,15 +554,16 @@ class Guard
                 // The push behind the QR was moved to a passkey after a tap during a call (Vishing Shield):
                 // the QR's code would be refused now, so switch to the passkey.
                 if (($bound['st'] ?? null) === 'offline' && $now['state'] === 'passkey_required') {
-                    return $issue(['state' => 'passkey_required', 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null], ['n' => $bound['n'] ?? null]);
+                    return $issue($expiring(['state' => 'passkey_required', 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null], $live), ['n' => $bound['n'] ?? null]);
                 }
                 if (($bound['st'] ?? null) === 'offline' && in_array($now['state'], ['waiting', 'expired'], true)) {
                     // Still (or no longer) pending: nothing changed for the user — keep showing the QR they have.
-                    return $issue(['state' => 'offline', 'offline' => ['challengeId' => (string)($bound['oc'] ?? '')]], ['oc' => $bound['oc'] ?? null, 'rid' => $bound['rid'], 'n' => $bound['n'] ?? null]);
+                    return $issue(['state' => 'offline', 'offline' => ['challengeId' => (string)($bound['oc'] ?? '')]], ['oc' => $bound['oc'] ?? null, 'rid' => $bound['rid'], 'n' => $bound['n'] ?? null]
+                        + ($live !== null ? ['rx' => $live] : $keepRx));
                 }
                 if (in_array($now['state'], ['waiting', 'passkey_required'], true)) {
-                    // "Why?": the case code stays on screen while it waits.
-                    $waiting = ['state' => $now['state'], 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null]
+                    // "Why?": the case code stays on screen while it waits, and so does when the request expires.
+                    $waiting = $expiring(['state' => $now['state'], 'requestId' => $bound['rid'], 'number' => $bound['n'] ?? null], $live)
                         + (isset($bound['cc']) ? ['caseCode' => $bound['cc']] : []);
                     return $issue($waiting, ['n' => $bound['n'] ?? null]);
                 }

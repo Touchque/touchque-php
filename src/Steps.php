@@ -65,6 +65,9 @@ class Steps
     /**
      * Starts an approval for `$action` — never waits.
      *
+     * A user with no phone linked gets the linking QR (`enroll`); with
+     * `$enroll = false` they get `['state' => 'enroll', 'reason' => 'enrollment_off']`.
+     *
      * `$browserProof` (silent sign-ins): the browser's device-bound key proof
      * (`X-Touchque-Browser`), passed through untouched. Once the user approves,
      * Touchque knows this browser.
@@ -117,7 +120,8 @@ class Steps
             $why = $err->getCaseCode() !== null ? ['caseCode' => $err->getCaseCode()] : [];
             if ($err->getStatus() === 404 && ($code === 'device_not_linked' || stripos($err->getMessage(), 'linked device') !== false)) {
                 if (!$enroll) {
-                    return ['state' => 'enroll'];
+                    // No phone, and this guard may not show the linking QR: final, a page stops polling.
+                    return ['state' => 'enroll', 'reason' => 'enrollment_off'];
                 }
                 return self::enrollStep($client, $user);
             }
@@ -228,7 +232,11 @@ class Steps
 
     private const STATE_MAP = ['PENDING' => 'waiting', 'CONFIRMED' => 'approved', 'REJECTED' => 'rejected', 'EXPIRED' => 'expired'];
 
-    /** Current state of a started approval. */
+    /**
+     * Current state of a started approval. While it waits (`waiting`,
+     * `passkey_required`) the step has the request's live `expiresAt` when
+     * Touchque sends it: a switch to a passkey during a call extends it.
+     */
     public static function check(Touchque $client, string $requestId): array
     {
         $s = $client->login->status($requestId);
@@ -237,6 +245,9 @@ class Steps
         $step = ['state' => $state, 'requestId' => $requestId];
         if ($state === 'approved' && !empty($s['assurance'])) {
             $step['assurance'] = $s['assurance'];
+        }
+        if (($state === 'waiting' || $state === 'passkey_required') && self::isoMs($s['expiresAt'] ?? null) !== null) {
+            $step['expiresAt'] = $s['expiresAt'];
         }
         return $step;
     }

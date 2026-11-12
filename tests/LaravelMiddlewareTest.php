@@ -11,6 +11,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Log;
 use Touchque\Config;
+use Touchque\Guard;
 use Touchque\Touchque;
 use Touchque\Laravel\TouchqueMiddleware;
 use Illuminate\Http\JsonResponse;
@@ -155,7 +156,7 @@ class LaravelMiddlewareTest extends TestCase
         $saved = ['TQ_API_KEY' => getenv('TQ_API_KEY'), 'TQ_API_SECRET' => getenv('TQ_API_SECRET')];
         putenv('TQ_API_KEY');
         putenv('TQ_API_SECRET');
-        $flag = new \ReflectionProperty(TouchqueMiddleware::class, 'loggedUnconfigured');
+        $flag = new \ReflectionProperty(Guard::class, 'loggedUnconfigured');
         if (\PHP_VERSION_ID < 80100) {
             $flag->setAccessible(true);
         }
@@ -265,6 +266,22 @@ class LaravelMiddlewareTest extends TestCase
         $this->assertSame(401, $res->getStatusCode());
         $this->assertSame(['error' => 'login_required', 'touchque' => $step], json_decode($res->getContent(), true));
         $this->assertSame(['error' => 'login_required', 'touchque' => $step], json_decode($answer((object)['error' => 'login_required'])->getContent(), true));
+    }
+
+    public function testTheResponseKeepsItsOriginalContent(): void
+    {
+        $run = fn (array $options) => self::middlewareFor(null, $this->client(), $options)
+            ->handle(Request::create('/transfer', 'POST'), fn () => new JsonResponse(['ran' => true]), 'SEND_MONEY');
+
+        // Laravel's getOriginalContent() is the body, as with any JsonResponse.
+        $plain = $run([]);
+        $this->assertSame(self::UNAUTHENTICATED, $plain->getOriginalContent());
+        $this->assertSame(json_encode(self::UNAUTHENTICATED), $plain->getContent());
+        $shaped = $run(['errorBody' => fn (array $r) => ['code' => $r['code']]]);
+        $this->assertEquals((object)['code' => 'unauthenticated', 'touchque' => self::UNAUTHENTICATED['touchque']], $shaped->getOriginalContent());
+        $this->assertSame('Sign in first.', $run(['errorBody' => fn (array $r) => $r['message']])->getOriginalContent());
+        // null is sent as null, not {}.
+        $this->assertSame('null', $run(['errorBody' => fn () => null])->getContent());
     }
 
     public function testErrorBodyNonObjectIsSentAsItIs(): void

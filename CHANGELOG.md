@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.2.0] — 2026-11-13
+
+### Added
+- **`Guard::run(null, ...)` uses the default client, `Guard::defaultClient()`:** the client given to the new `Guard::setDefaultClient(?Touchque)`, else a Laravel binding of `Touchque` (`$app->bind/singleton(Touchque::class, ...)`, resolved on each call; a contextual binding for `TouchqueMiddleware` is not used), else one built from `TQ_API_KEY` / `TQ_API_SECRET` (and `TQ_API_URL`) on the first request that needs it and kept once built; a failed build is tried again on the next request. While none can be built the guard answers 500 `misconfigured` (401 `unauthenticated` without a user), logged once per process through Laravel's logger in a Laravel app; `TouchqueMiddleware` shares that one log line. `Guard::isStatusPoll(null, ...)` takes it too and is false while it cannot be built. So a handler needs no client built at startup, where it would throw without keys.
+- **`Guard::setDefaultClient(?Touchque $client)`** gives the null path your own client (your `Config`: a logger, a base URL); `null` forgets it: the next call uses your Laravel binding of `Touchque`, else builds from the environment. **`Guard::defaultClient()`** is the fail-fast check at startup: it throws `TouchqueConfigException`, naming what is missing.
+- **`Guard::response(array $result, ?callable $errorBody = null, ?Touchque $client = null): array`** gives `['status' => int, 'headers' => array, 'body' => mixed]` for a result that is not an approval, exactly as `TouchqueMiddleware` and the relay send it (both use it now): `Cache-Control: no-store`, `Retry-After` on 423 / 429, `X-Touchque-State` / `X-Touchque-Reason` on 400 and above, and the optional `$errorBody` with the 5.1 rules. A callable that throws, or a result that cannot be encoded, is logged through `$client`'s logger (else Laravel's logger in a Laravel app) and the default body sent. It throws `InvalidArgumentException` for an approval.
+
+### Fixed
+- `TouchqueMiddleware`'s answers shaped by `errorBody` keep `getOriginalContent()` (the body), like its other answers and any Laravel `JsonResponse`; a `null` from `errorBody` is still sent as `null`.
+
+### Changed
+- **Waiting polls carry `expiresAt`.** A `waiting` or `passkey_required` step with `expiresAt` puts it in its token (claim `rx`, ms since the epoch), and every later answer for that request in those two states carries `expiresAt`: the live one from Touchque's status answer when it has one (a push moved to a passkey during a call gets 180 s more), else the token's. The new token keeps the value used, and the offline QR next to the push carries it on. Only the first answer had it, so a page reading it from the latest answer never stopped by time. `Steps::check()` gives the live `expiresAt` while a request waits. With neither, polls answer as before.
+- **`$enroll = false` says why.** A user with no phone on a guard that may not show the linking QR gets 202 `{"touchque":{"state":"enroll","reason":"enrollment_off"}}` instead of a bare `enroll` step: the relay's `POST /login` without `getLoginUser` and its passkey registration too. `@touchque/web` 2.2.0 stops polling on it.
+- README: "Guard inside your handler" uses `Guard::run(null, ...)` and `Guard::response()`, shows `Guard::setDefaultClient()` and the fail-fast `Guard::defaultClient()`, says that a new first-time QR comes about 15 s before the old one expires with new recovery codes (the old QR and codes stop working) and that a first-time QR poll is charged once the QR is gone or within about 15 s of expiring, that waiting polls carry `expiresAt`, what `enrollment_off` means, and that `passkey_required`, `offline` and an `enroll` step with a reason need `@touchque/web` or your own UI following the contract. The examples run on PHP 7.4: no named arguments (`new Config(null, null, null, 10000, $logger)`, the code reply's 20th argument).
+
 ## [5.1.0] — 2026-11-12
 
 ### Fixed
