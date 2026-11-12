@@ -148,11 +148,7 @@ class Steps
     private static function enrollStep(Touchque $client, string $user): array
     {
         try {
-            $gen = $client->auth->generateSecret($user);
-            return ['state' => 'enroll', 'enroll' => [
-                'qrCodeDataUrl' => $gen['qrCodeDataUrl'] ?? null, 'recoveryCodes' => $gen['recoveryCodes'] ?? null,
-                'expiresAt' => $gen['expiresAt'] ?? null,
-            ]];
+            return self::enrollQr($client->auth->generateSecret($user));
         } catch (TouchqueAPIException $err) {
             if ($err->getStatus() !== 409) {
                 throw $err;
@@ -166,12 +162,45 @@ class Steps
             if ($current && (!empty($current['used']) || !empty($current['deviceId']))) {
                 return ['state' => 'enroll', 'reason' => 'already_linked'];
             }
-            $reset = $client->auth->resetSecret($user);
-            return ['state' => 'enroll', 'enroll' => [
-                'qrCodeDataUrl' => $reset['qrCodeDataUrl'] ?? null, 'recoveryCodes' => $reset['recoveryCodes'] ?? null,
-                'expiresAt' => $reset['expiresAt'] ?? null,
-            ]];
+            return self::enrollQr($client->auth->resetSecret($user));
         }
+    }
+
+    /**
+     * The enroll step for a new linking QR. `expiresAt` is when the QR stops working: the API's
+     * `expiresAt` when it is an ISO 8601 date-time, else now + its `ttlMs`, else null.
+     */
+    private static function enrollQr(array $res): array
+    {
+        $expiresAt = null;
+        if (self::isoMs($res['expiresAt'] ?? null) !== null) {
+            $expiresAt = $res['expiresAt'];
+        } elseif (is_numeric($res['ttlMs'] ?? null) && $res['ttlMs'] > 0) {
+            $expiresAt = self::isoOf((int)(microtime(true) * 1000) + (int)$res['ttlMs']);
+        }
+        return ['state' => 'enroll', 'enroll' => [
+            'qrCodeDataUrl' => $res['qrCodeDataUrl'] ?? null, 'recoveryCodes' => $res['recoveryCodes'] ?? null,
+            'expiresAt' => $expiresAt,
+        ]];
+    }
+
+    /** @internal Milliseconds since the epoch of an ISO 8601 date-time with a zone (`2026-11-12T10:05:00.000Z`), or null. */
+    public static function isoMs($value): ?int
+    {
+        if (!is_string($value) || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/i', $value)) {
+            return null;
+        }
+        try {
+            return (int)(new \DateTimeImmutable($value))->format('Uv');
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    /** @internal Milliseconds since the epoch as ISO 8601 in UTC, like JavaScript's toISOString(). */
+    public static function isoOf(int $ms): string
+    {
+        return gmdate('Y-m-d\TH:i:s', intdiv($ms, 1000)) . sprintf('.%03dZ', $ms % 1000);
     }
 
     /**

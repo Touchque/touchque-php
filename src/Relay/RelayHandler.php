@@ -236,12 +236,20 @@ class RelayHandler
         $details = $this->getDetails !== null ? ($this->getDetails)($ctx['req']) : null;
         // Polling an approval already sent is not a new attempt: it has its own,
         // larger per-IP budget and never uses the user's push budget.
-        $limited = Guard::isStatusPoll($this->tq, $user, $this->actionType, $details, null, $input['token'], $input['offline'], $input['code'])
+        $poll = Guard::isStatusPoll($this->tq, $user, $this->actionType, $details, null, $input['token'], $input['offline'], $input['code']);
+        $limited = $poll
             ? $this->allow($ctx, 'login-poll', null, self::POLLS_PER_ATTEMPT)
             : $this->allow($ctx, 'login', $user);
         if ($limited !== null) {
             return $limited;
         }
+        // A first-time QR poll that starts after all (the user linked, or the QR is gone) is
+        // charged like a new attempt: a replayed token must not push on the poll budget.
+        $refused = null;
+        $beforeStart = $poll ? function () use ($ctx, $user, &$refused): ?array {
+            $refused = $this->allow($ctx, 'login', $user);
+            return $refused === null ? null : ['status' => $refused->getStatus(), 'body' => $refused->getBody()];
+        } : null;
         $result = Guard::run(
             $this->tq,
             $user,
@@ -258,14 +266,15 @@ class RelayHandler
             // getLoginUser ties this route to the password step.
             $this->getLoginUser !== null,
             $silent['browserProof'],
-            $silent['silentSignIn']
+            $silent['silentSignIn'],
+            null,
+            $beforeStart
         );
+        if ($refused !== null) {
+            return $refused;
+        }
         if (!isset($result['approved'])) {
-            $res = new RelayResponse($result['status'], $result['body']);
-            if (!empty($result['body']['touchque']['retryAfter'])) {
-                $res->setHeader('Retry-After', (string)$result['body']['touchque']['retryAfter']);
-            }
-            return $res->setHeader('Cache-Control', 'no-store');
+            return self::guardResponse($result);
         }
         $approved = $result['approved'];
         $res = new RelayResponse(200);
@@ -509,11 +518,7 @@ class RelayHandler
                 $input['token'], $input['offline'], $input['code'], $input['codeType'], false
             );
             if (!isset($result['approved'])) {
-                $res = new RelayResponse($result['status'], $result['body']);
-                if (!empty($result['body']['touchque']['retryAfter'])) {
-                    $res->setHeader('Retry-After', (string)$result['body']['touchque']['retryAfter']);
-                }
-                return $res->setHeader('Cache-Control', 'no-store');
+                return self::guardResponse($result);
             }
             return new RelayResponse(200, $this->tq->webauthn->registerOptions($userId, true, $result['approved']['requestId']));
         } catch (\Throwable $error) {
@@ -608,6 +613,16 @@ class RelayHandler
         }
         return (new RelayResponse(429, ['error' => 'RATE_LIMITED', 'message' => 'Too many attempts. Try again later.', 'retryAfter' => $wait]))
             ->setHeader('Retry-After', (string)$wait);
+    }
+
+    /** A guard answer that is not an approval, with Guard::headers() (no-store, Retry-After, X-Touchque-State / -Reason). */
+    private static function guardResponse(array $result): RelayResponse
+    {
+        $res = new RelayResponse($result['status'], $result['body']);
+        foreach (Guard::headers($result) as $name => $value) {
+            $res->setHeader($name, $value);
+        }
+        return $res;
     }
 
     private static function unauthorized(): RelayResponse

@@ -3,7 +3,25 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [5.1.0] — 2026-11-12
+
+### Fixed
+- **The first-time QR stays the same while the user scans it.** Every poll with an `enroll` token started again (login request, 404 `device_not_linked`, generate-secret 409, reset), so each 1.5 s poll replaced the QR and the recovery codes on screen and the QR being scanned stopped working. Now:
+  - The enroll step carries `enroll.expiresAt`: the API's `expiresAt` when it is ISO 8601, else now + its `ttlMs`; its token carries that expiry.
+  - A poll with that token reads only the link state (`GET /users/{externalUsername}`). Not linked, with more than 15 s left: 202 `{"touchque":{"state":"enroll","expiresAt":"..."},"token":"..."}` with no `enroll` object, so the page keeps the QR and the recovery codes it shows; no new secret, no push. Linked: the push starts as before. Expired, about to expire, or unknown to Touchque: a new QR comes with `enroll.qrCodeDataUrl`.
+  - `Guard::isStatusPoll()` is true for such a poll while the first-time QR is up (more than 15 s before it expires), so the relay's `POST /login` no longer counts those polls against the per-user limit. Renewing an expiring QR still counts.
+  - Pages on `@touchque/web` need 2.1.0, which keeps the QR it shows for such a step.
+- **A start is always charged.** A first-time QR poll that starts after all (the user linked: the push; the QR expired or is gone: a new QR) calls `Guard::run()`'s new last argument `$beforeStart` first, which may answer instead. The relay's `POST /login` charges it to the username's budget like a new attempt and answers its usual 429 over the limit, so replaying an old enroll token can no longer push on the poll budget.
+- **`TouchqueMiddleware` answers JSON when `TQ_API_KEY` / `TQ_API_SECRET` are missing.** It used to throw when Laravel's container built it. The client now comes from the container on the first request, inside the middleware's error handling, and is kept once built. Without keys a guarded route answers 500 `misconfigured` with `Cache-Control: no-store` (401 `unauthenticated` when nobody is signed in) and never runs; the middleware logs once, through Laravel's logger: `[Touchque] TQ_API_KEY and TQ_API_SECRET are not set: routes guarded by Touchque answer 500 misconfigured.`
+
+### Added
+- **`errorBody`: refusals in your API's own error shape.** `new TouchqueMiddleware(null, ['errorBody' => fn (array $r) => ['message' => $r['message'], 'code' => $r['code']]])`. It is called for every answer of 400 and above (401, 403, 408, 423, 429, 500, 503), never for a 202 step or an approval, with the refusal `['status', 'code', 'message', 'touchque']`. What the result encodes to, as `JsonResponse` encodes it, decides: a JSON object (an array with string keys, an object, a `JsonSerializable`, `Arrayable` or `Jsonable`) is sent with `touchque` set to the step (the SDK's key wins, no `token` is added); anything else as it is. Status and headers stay the same. A callable that throws, or a result that cannot be encoded, is logged (`[Touchque] errorBody failed: <message>`) and the default body sent.
+- **Refusal headers.** Every guard answer of 400 and above, from `TouchqueMiddleware` and the relay, carries `X-Touchque-State` and, when the step has a reason, `X-Touchque-Reason`; `@touchque/web` 2.1.0 reads the step from them when the body has no `touchque` key. Cross-origin pages must expose them (`Access-Control-Expose-Headers`). `Guard::headers($result)` gives them, with `Cache-Control` and `Retry-After`, for your own handler.
+- `Guard::refusal($result)` and `Guard::errorBody($result, $errorBody)` for the same shape in your own handler; `Guard::unauthenticated()` and `Guard::misconfigured()`, the guard's 401 and 500 answers.
+- README: "Guard inside your handler" (`Guard::run()` after your own checks, what to send back, the 202 and first-time QR polls, `$beforeStart` for your own rate limits), the `errorBody` option, the refusal headers and what a missing key answers.
+
+### Changed
+- `TouchqueMiddleware`'s client argument is optional: `new TouchqueMiddleware(null, $options)` (the default) takes the client from Laravel's container on the first request, as constructor injection did: a contextual binding (`$app->when(TouchqueMiddleware::class)->needs(Touchque::class)`), your `Touchque` binding, or one from the environment. Passing a client works as before. The README's binding examples use `null`: `$app->make(Touchque::class)` there would still throw without keys.
 
 ## [5.0.0] — 2026-11-11
 

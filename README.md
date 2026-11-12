@@ -32,9 +32,12 @@ TQ_API_SECRET=your_api_secret
 // bootstrap/app.php (Laravel 11+)
 $middleware->alias(['touchque' => \Touchque\Laravel\TouchqueMiddleware::class]);
 
-// a service provider
+// a service provider (optional: for your own Config, a logger or a base URL)
 $this->app->singleton(\Touchque\Touchque::class, fn () => new \Touchque\Touchque());
 ```
+
+The middleware takes the client from Laravel's container on the first request: your binding, or
+one built from `TQ_API_KEY` / `TQ_API_SECRET`.
 
 ```php
 // routes/api.php
@@ -52,9 +55,61 @@ this loop for you in the browser. Once approved, the retried request reaches
 your controller exactly once, with `$request->attributes->get('touchque')`
 set to the approval.
 
+A frontend of your own: while the first-time QR is up, polls answer `{"state": "enroll", "expiresAt": ...}`
+without `enroll`, so keep showing the QR you have; a new one comes with `enroll.qrCodeDataUrl`.
+
 The signed-in user comes from Laravel's own auth (`$request->user()`). For a
 login route (no signed-in user yet), extend `TouchqueMiddleware` and override
 `resolveUser()` to return whoever just passed your password step.
+
+**A missing key.** Without `TQ_API_KEY` / `TQ_API_SECRET` nothing throws, at boot or on a request.
+A guarded route answers **500** with `Cache-Control: no-store` and the body
+`{"touchque":{"state":"blocked","reason":"misconfigured"},"error":{"code":"misconfigured","message":"Two-factor approval is not configured correctly."}}`
+(401 `unauthenticated` when nobody is signed in), and your controller never runs. The middleware
+logs it once, through Laravel's logger: `[Touchque] TQ_API_KEY and TQ_API_SECRET are not set: routes
+guarded by Touchque answer 500 misconfigured.` A 500 rather than a 503: it is a deploy mistake for your
+monitoring to catch, not an outage to retry. `@touchque/web` shows "Approvals are not set up correctly
+on this site."
+
+**Refusal headers.** Every answer of 400 and above carries `X-Touchque-State: <state>`, plus
+`X-Touchque-Reason: <reason>` when the step has one; `@touchque/web` 2.1.0 reads the step from them when
+the body has no `touchque` key. A frontend on another origin must list them in
+`Access-Control-Expose-Headers`.
+
+### Your own error shape (`errorBody`)
+
+Refusals (403, 408, 423, 429) answer `{"touchque": step, "token": "..."}`; the guard's own errors (401,
+500, 503) answer `{"touchque": step, "error": {"code", "message"}}`. To answer in your API's own error
+shape, give the middleware an `errorBody` callable when you bind it (or set `$this->errorBody` in your
+subclass's constructor):
+
+```php
+// a service provider
+use Touchque\Laravel\TouchqueMiddleware;
+
+$this->app->bind(TouchqueMiddleware::class, fn () => new TouchqueMiddleware(null, [
+    'errorBody' => fn (array $r) => ['message' => $r['message'], 'code' => $r['code']],
+]));
+```
+
+It is called for every answer of 400 and above (401, 403, 408, 423, 429, 500, 503), never for a 202
+step or an approval, with the refusal:
+
+- `status`;
+- `code`: the error's code, else the step's `reason`, else its `state`;
+- `message`: the error's message, else by state: "The approval was rejected.", "The approval expired.
+  Try again.", "Too many rejected approvals. Try again later." (`frozen`), "Too many attempts. Try again
+  later." (`rate_limited`), "The approval was refused." (anything else);
+- `touchque`: the step as it would be sent.
+
+What the result encodes to, the way `JsonResponse` encodes it, decides. A JSON object (an array with
+string keys, an object, a `JsonSerializable`, an `Arrayable` or `Jsonable` such as a Collection) is sent
+with `touchque` set to the step, replacing yours, so `@touchque/web` still sees the state: 403
+`{"message":"The approval was rejected.","code":"rejected","touchque":{"state":"rejected",...}}`. No
+`token` is added. Anything else (a string, a number, a list, `null`) is sent as it is. The callable gets a
+copy of the step. The status and the headers stay the same (JSON, `Cache-Control: no-store`,
+`Retry-After`, `X-Touchque-State`). A callable that throws, or a result that cannot be encoded, is logged
+(`[Touchque] errorBody failed: <message>`) and the default body is sent.
 
 ## Action types
 
@@ -70,6 +125,59 @@ The guard refuses what is not ready. A name that is not defined is a setup error
 (`TouchqueConfigException`, "Unknown action …"): the guard answers 500 with `reason: 'misconfigured'`. A type
 turned off in the dashboard answers 403 with `reason: 'action_disabled'`, which stops that kind of
 approval at once, without a deploy.
+
+## Guard inside your handler
+
+When your own checks come first (the balance, who owns the account), run the guard in your handler,
+after them, with `Guard::run()`: the middleware's two-phase contract, for Laravel or any framework.
+
+```php
+use Touchque\Guard;
+
+// Your checks first, on every request (each poll comes back through them).
+if ($account->ownerEmail !== $user || $account->balance < $amount) {
+    return json(['error' => 'not_allowed'], 403);
+}
+
+$in = Guard::inputFromHeaders(fn (string $name) => $request->header($name)); // any case-insensitive getter
+$result = Guard::run(
+    $tq, $user, 'SEND_MONEY',
+    ['Amount' => "$amount EUR", 'To' => $account->iban], // shown on the phone, bound to the approval
+    null, $clientIp, $userAgent,
+    $in['token'], $in['offline'], $in['code'], $in['codeType']
+);
+
+if (isset($result['approved'])) {
+    $transfers->send($account, $amount); // approved: runs once
+    return json(['sent' => true], 200);
+}
+
+// Cache-Control: no-store, Retry-After on 423 / 429, X-Touchque-State (and -Reason) on 400 and above
+return json($result['body'], $result['status'], Guard::headers($result)); // your framework's JSON response
+```
+
+- **202** `{"touchque": step, "token": "..."}`: show the step and send the same request again with
+  `X-Touchque-Token: <token>` until it is approved (`@touchque/web` does this loop).
+- **200** with `$result['approved']`: run the action once. The approval is used up there: the same
+  token never approves twice.
+- **401, 403, 408, 423, 429, 500, 503**: send `status` and `body` as they are, with
+  `Guard::headers($result)`: `Cache-Control: no-store`, `Retry-After` on 423 and 429, `X-Touchque-State`
+  and `X-Touchque-Reason`. For your own error shape, `Guard::errorBody($result, $errorBody)` judges
+  `json_encode()` of what your callable returns, as it is (it does not convert Laravel's `Arrayable` /
+  `Jsonable` as the middleware does): a JSON object gets `touchque`. It throws when your callable
+  throws or the result cannot be encoded. Encode `null` yourself (Laravel's `JsonResponse(null)` sends `{}`).
+- **First-time QR**: a user with no phone linked gets the step `enroll` with `enroll.qrCodeDataUrl`, the
+  recovery codes and `enroll.expiresAt`. While the first-time QR is up, polls answer
+  `{state: "enroll", expiresAt}` without `enroll`: keep showing the QR you have. A new QR comes with
+  `enroll.qrCodeDataUrl` when the old one expired. Pages on `@touchque/web` need 2.1.0.
+- **Rate limits**: `Guard::isStatusPoll()` tells a poll from a new attempt (a poll only reads the status).
+  If you count attempts per user, pass `Guard::run()` a last argument `$beforeStart`: a callable it calls
+  when a first-time QR poll starts after all (the user linked, or the QR expired), to charge that start;
+  return a result to answer instead, or null to go on (anything else throws). The relay does this for
+  `POST /login`.
+
+`Guard::run()` needs a client: `new Touchque()` throws `TouchqueConfigException` when a key is missing,
+so build it where you handle that (the Laravel middleware answers 500 `misconfigured` for you).
 
 ## Relay routes for `@touchque/web`
 
@@ -104,7 +212,11 @@ TouchqueRelay::routes(app('router'), 'touchque');
 The signed-in user for enrollment and passkey management defaults to
 `$request->user()` (override with `'getUserId' => fn (Request $r) => ...`).
 Pre-auth routes are rate limited per IP and per username (20 / 5 per minute per
-route; `429 RATE_LIMITED` + `Retry-After`). The default counter store is in
+route; `429 RATE_LIMITED` + `Retry-After`). Polls of an approval on its way have
+their own per-IP budget; a first-time QR poll that starts after all (the user
+linked, or the QR expired) counts against the username's budget like a new
+attempt. Guard answers of 400 and above carry `X-Touchque-State` (and
+`X-Touchque-Reason`). The default counter store is in
 memory, which under PHP-FPM starts empty on every request: give it a shared
 store by implementing `Touchque\Relay\RateLimitStore` over APCu or Redis, or
 pass `'rateLimit' => false` and rate limit in front of the routes.
@@ -363,8 +475,8 @@ $this->app->singleton(TouchqueRelay::class, fn ($app) => new TouchqueRelay($app-
 ]));
 
 // The middleware: when binding it, or in your subclass (protected $silentSignIn = true;)
-$this->app->bind(TouchqueMiddleware::class, fn ($app) => new TouchqueMiddleware(
-    $app->make(\Touchque\Touchque::class),
+$this->app->bind(TouchqueMiddleware::class, fn () => new TouchqueMiddleware(
+    null, // the client: from the container on the first request
     ['silentSignIn' => true]
 ));
 ```
@@ -589,7 +701,7 @@ See [SECURITY.md](https://github.com/Touchque/touchque-php/blob/main/SECURITY.md
 
 ## Logging
 
-The SDK writes nothing to `error_log()` on its own. To see its own problems (a misconfigured guard, a failed `$onChallenge`, a relay without `getLoginUser`), pass a PSR-3 logger or a `callable(string $level, string $message)`: `new Config(logger: $logger)`, or `new Config(debug: true)` for `error_log()`. Lines carry an error's class and message, never the request.
+The SDK writes nothing to `error_log()` on its own. To see its own problems (a misconfigured guard, a failed `$onChallenge`, a relay without `getLoginUser`), pass a PSR-3 logger or a `callable(string $level, string $message)`: `new Config(logger: $logger)`, or `new Config(debug: true)` for `error_log()`. Lines carry an error's class and message, never the request. When `TouchqueMiddleware` cannot build its client (a missing key), there is no Config to carry your logger: it logs that once through Laravel's logger.
 
 ## License
 

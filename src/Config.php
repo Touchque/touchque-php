@@ -8,6 +8,9 @@ class Config
 {
     public const DEFAULT_BASE_URL = 'https://api.touchque.com';
 
+    /** @internal The message of the TouchqueConfigException for a missing key or secret. */
+    public const MISSING_KEYS = 'Set TQ_API_KEY and TQ_API_SECRET (or pass them to Config).';
+
     private string $apiKey;
     private string $apiSecret;
     private string $baseUrl;
@@ -39,7 +42,7 @@ class Config
         $baseUrl = $baseUrl ?? (getenv('TQ_API_URL') ?: self::DEFAULT_BASE_URL);
 
         if (!$apiKey || !$apiSecret) {
-            throw new TouchqueConfigException('Set TQ_API_KEY and TQ_API_SECRET (or pass them to Config).');
+            throw new TouchqueConfigException(self::MISSING_KEYS);
         }
         if (strpos($apiKey, 'tq_') !== 0) {
             throw new TouchqueConfigException('apiKey must start with "tq_". Did you accidentally swap apiKey and apiSecret?');

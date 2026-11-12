@@ -9,7 +9,7 @@ use Touchque\Exceptions\TouchqueNetworkException;
 
 class HttpClient
 {
-    private const SDK_VERSION = '5.0.0';
+    private const SDK_VERSION = '5.1.0';
     private Config $config;
 
     /** @internal The SDK's own log (silent unless the Config has a logger or debug). */

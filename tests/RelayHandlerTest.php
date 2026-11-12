@@ -597,6 +597,93 @@ class RelayHandlerTest extends TestCase
         $this->assertSame(429, $this->call($h, 'POST', '/login', ['externalUsername' => $user], ['X-Touchque-Token' => 'forged'])->getStatus());
     }
 
+    // ── First-time QR polls and the per-user budget ─────────────────────
+
+    /** A relay whose POST /login acts for $user (behind the password step, so it offers the linking QR). */
+    private function loginRelayFor(string $user, int $perUser): RelayHandler
+    {
+        return $this->handler($this->realClient(), ['rateLimit' => ['perUser' => $perUser, 'perIp' => 100], 'getLoginUser' => function () use ($user) {
+            return $user;
+        }]);
+    }
+
+    public function testEnrollTokenReplaysAfterLinkingAreChargedPerUser(): void
+    {
+        $user = self::user('replayed');
+        $h = $this->loginRelayFor($user, 5);
+        $first = $this->call($h, 'POST', '/login');
+        $this->assertSame('enroll', $first->getBody()['touchque']['state']);
+        $token = $first->getBody()['token'];
+        self::$api->link($user);
+        $before = $this->loginPushesFor($user);
+
+        // While the QR is up the old token is a poll; each start it makes is charged like a new attempt.
+        $statuses = [];
+        for ($i = 0; $i < 12; $i++) {
+            $res = $this->call($h, 'POST', '/login', [], ['X-Touchque-Token' => $token]);
+            $statuses[] = $res->getStatus();
+            if ($res->getStatus() === 429) {
+                $this->assertSame('RATE_LIMITED', $res->getBody()['error']);
+                $this->assertGreaterThan(0, (int)$res->getHeader('Retry-After'));
+            }
+        }
+        $this->assertSame(array_merge(array_fill(0, 4, 202), array_fill(0, 8, 429)), $statuses);
+        $this->assertSame(4, $this->loginPushesFor($user) - $before, 'the first attempt and 4 replays fill the budget of 5');
+    }
+
+    public function testEnrollPollsThatKeepTheQrAreNeverCharged(): void
+    {
+        $user = self::user('keeper');
+        $h = $this->loginRelayFor($user, 2);
+        $token = $this->call($h, 'POST', '/login')->getBody()['token'];
+        for ($i = 0; $i < 10; $i++) {
+            $res = $this->call($h, 'POST', '/login', [], ['X-Touchque-Token' => $token]);
+            $this->assertSame(202, $res->getStatus(), "poll $i");
+            $this->assertArrayNotHasKey('enroll', $res->getBody()['touchque']);
+        }
+        // The budget of 2 is still 1 used: the poll that pushes once the phone is linked passes.
+        self::$api->link($user);
+        $waiting = $this->call($h, 'POST', '/login', [], ['X-Touchque-Token' => $token]);
+        $this->assertSame([202, 'waiting'], [$waiting->getStatus(), $waiting->getBody()['touchque']['state']]);
+    }
+
+    public function testAnEnrollQrRenewalAtTheMarginIsCharged(): void
+    {
+        self::$api->opts(['secretTtlMs' => 10000]); // inside the 15 s margin from the start
+        try {
+            $user = self::user('renewer');
+            $h = $this->loginRelayFor($user, 2);
+            $first = $this->call($h, 'POST', '/login');
+            $renewed = $this->call($h, 'POST', '/login', [], ['X-Touchque-Token' => $first->getBody()['token']]);
+            $this->assertSame(202, $renewed->getStatus());
+            $this->assertSame('data:image/png;base64,QR2-' . $user, $renewed->getBody()['touchque']['enroll']['qrCodeDataUrl']);
+            $again = $this->call($h, 'POST', '/login', [], ['X-Touchque-Token' => $renewed->getBody()['token']]);
+            $this->assertSame([429, 'RATE_LIMITED'], [$again->getStatus(), $again->getBody()['error']]);
+        } finally {
+            self::$api->opts(['secretTtlMs' => null]);
+        }
+    }
+
+    public function testGuardAnswersCarryTheStateHeaders(): void
+    {
+        $user = self::user('refused');
+        self::$api->link($user);
+        $h = $this->handler($this->realClient(), ['rateLimit' => false]);
+        $waiting = $this->call($h, 'POST', '/login', ['externalUsername' => $user]);
+        $this->assertSame(202, $waiting->getStatus());
+        $this->assertNull($waiting->getHeader('X-Touchque-State'), 'not on a 202 step');
+
+        self::$api->opts(['blocked' => 'geo_policy']);
+        try {
+            $blocked = $this->call($h, 'POST', '/login', ['externalUsername' => $user]);
+        } finally {
+            self::$api->opts(['blocked' => false]);
+        }
+        $this->assertSame([403, 'blocked', 'geo_policy', 'no-store'], [
+            $blocked->getStatus(), $blocked->getHeader('X-Touchque-State'), $blocked->getHeader('X-Touchque-Reason'), $blocked->getHeader('Cache-Control'),
+        ]);
+    }
+
     public function testAddingAPasskeyNeedsThePhone(): void
     {
         // A passkey approves requests on its own, so a stolen session of the partner

@@ -5,9 +5,13 @@ namespace Touchque\Tests;
 use PHPUnit\Framework\TestCase;
 use Touchque\Config;
 use Touchque\Guard;
+use Touchque\Steps;
 use Touchque\Touchque;
+use Touchque\Exceptions\TouchqueAPIException;
 use Touchque\Exceptions\TouchqueConfigException;
 use Touchque\Exceptions\TouchqueException;
+use Touchque\Resources\Auth;
+use Touchque\Resources\Login;
 
 /**
  * Contract tests against the shared fake Touchque API — a real HTTP round
@@ -294,5 +298,194 @@ class ContractTest extends TestCase
         $done = Guard::run($tq, 'revoke@acme.com', 'LOGIN', null, null, null, null, $first['body']['token']);
         $this->assertSame(408, $done['status']);
         $this->assertSame(['state' => 'expired', 'reason' => 'revoked'], $done['body']['touchque']);
+    }
+
+    // ── First-time QR: one per enrollment ──────────────────────────────────
+
+    /** The calls the fake API got after the first $from. */
+    private static function callsSince(int $from): array
+    {
+        return array_map(fn ($c) => $c['method'] . ' ' . $c['path'], array_slice(self::$api->calls(), $from));
+    }
+
+    public function testAnEnrollPollKeepsTheQrWithoutANewSecret(): void
+    {
+        $this->cleanOpts();
+        $tq = $this->client();
+        $user = 'enroll-keep@acme.com';
+        $first = Guard::run($tq, $user, 'LOGIN');
+        $this->assertSame(202, $first['status']);
+        $qr = $first['body']['touchque']['enroll'];
+        $this->assertSame(['data:image/png;base64,QR-' . $user, ['r1']], [$qr['qrCodeDataUrl'], $qr['recoveryCodes']]);
+        $expiresAt = Steps::isoMs($qr['expiresAt']);
+        $this->assertNotNull($expiresAt, 'the API\'s ISO 8601 expiresAt is kept');
+        $this->assertTrue(Guard::isStatusPoll($tq, $user, 'LOGIN', null, null, $first['body']['token']));
+
+        $from = count(self::$api->calls());
+        $poll = Guard::run($tq, $user, 'LOGIN', null, null, null, null, $first['body']['token']);
+        $this->assertSame(202, $poll['status']);
+        // No enroll object: the page keeps the QR and the recovery codes it shows.
+        $this->assertSame(['state' => 'enroll', 'expiresAt' => Steps::isoOf($expiresAt)], $poll['body']['touchque']);
+        // Only the link state is read: no new secret, no reset, no push.
+        $this->assertSame(['GET /users/' . rawurlencode($user)], self::callsSince($from));
+
+        $again = Guard::run($tq, $user, 'LOGIN', null, null, null, null, $poll['body']['token']);
+        $this->assertSame($poll['body']['touchque'], $again['body']['touchque']);
+        $this->assertTrue(Guard::isStatusPoll($tq, $user, 'LOGIN', null, null, $poll['body']['token']));
+        $this->assertFalse(Guard::isStatusPoll($tq, $user, 'SEND_MONEY', null, null, $poll['body']['token']));
+        $this->assertFalse(Guard::isStatusPoll($tq, 'other@acme.com', 'LOGIN', null, null, $poll['body']['token']));
+    }
+
+    public function testLinkingDuringTheEnrollPollSendsThePush(): void
+    {
+        $this->cleanOpts();
+        $tq = $this->client();
+        $user = 'enroll-link@acme.com';
+        $first = Guard::run($tq, $user, 'LOGIN');
+        $this->assertSame('enroll', $first['body']['touchque']['state']);
+        self::$api->link($user);
+        $poll = Guard::run($tq, $user, 'LOGIN', null, null, null, null, $first['body']['token']);
+        $this->assertSame(202, $poll['status']);
+        $this->assertSame('waiting', $poll['body']['touchque']['state']);
+        $this->assertNotEmpty($poll['body']['touchque']['requestId']);
+    }
+
+    public function testAnEnrollQrCloseToItsExpiryIsReplaced(): void
+    {
+        $this->cleanOpts();
+        self::$api->opts(['secretTtlMs' => 10000]); // less than the 15 s the guard keeps in hand
+        try {
+            $tq = $this->client();
+            $user = 'enroll-short@acme.com';
+            $first = Guard::run($tq, $user, 'LOGIN');
+            $this->assertSame('data:image/png;base64,QR-' . $user, $first['body']['touchque']['enroll']['qrCodeDataUrl']);
+            $poll = Guard::run($tq, $user, 'LOGIN', null, null, null, null, $first['body']['token']);
+            $this->assertSame(202, $poll['status']);
+            $this->assertSame('enroll', $poll['body']['touchque']['state']);
+            $this->assertSame(['data:image/png;base64,QR2-' . $user, ['r2']], [$poll['body']['touchque']['enroll']['qrCodeDataUrl'], $poll['body']['touchque']['enroll']['recoveryCodes']]);
+        } finally {
+            self::$api->opts(['secretTtlMs' => null]);
+        }
+    }
+
+    public function testAnEnrollTokenIsAStatusPollOnlyWhileTheQrIsUp(): void
+    {
+        $tq = $this->client();
+        try {
+            self::$api->opts(['secretTtlMs' => 60000]); // 45 s before the 15 s margin
+            $up = Guard::run($tq, 'enroll-up@acme.com', 'LOGIN');
+            $this->assertTrue(Guard::isStatusPoll($tq, 'enroll-up@acme.com', 'LOGIN', null, null, $up['body']['token']));
+
+            self::$api->opts(['secretTtlMs' => 10000]); // inside the margin: the next poll renews the QR
+            $expiring = Guard::run($tq, 'enroll-expiring@acme.com', 'LOGIN');
+            $this->assertFalse(Guard::isStatusPoll($tq, 'enroll-expiring@acme.com', 'LOGIN', null, null, $expiring['body']['token']));
+        } finally {
+            self::$api->opts(['secretTtlMs' => null]);
+        }
+    }
+
+    /** Guard::run() with only a token and the $beforeStart hook. */
+    private static function runWithHook(Touchque $tq, string $user, ?string $token, callable $beforeStart): array
+    {
+        return Guard::run($tq, $user, 'LOGIN', null, null, null, null, $token, false, null, null, true, null, false, null, $beforeStart);
+    }
+
+    public function testBeforeStartRunsOnlyWhenAnEnrollPollStartsAfterAll(): void
+    {
+        $this->cleanOpts();
+        $tq = $this->client();
+        $user = 'enroll-hook@acme.com';
+        $calls = 0;
+        $refused = ['status' => 429, 'body' => ['error' => 'RATE_LIMITED']];
+        $refuse = function () use (&$calls, $refused): array {
+            $calls++;
+            return $refused;
+        };
+        $goOn = function () use (&$calls): ?array {
+            $calls++;
+            return null;
+        };
+
+        $first = self::runWithHook($tq, $user, null, $refuse);
+        $this->assertSame('enroll', $first['body']['touchque']['state']);
+        $keep = self::runWithHook($tq, $user, $first['body']['token'], $refuse);
+        $this->assertSame('enroll', $keep['body']['touchque']['state']);
+        $this->assertArrayNotHasKey('enroll', $keep['body']['touchque']);
+        $this->assertSame(0, $calls, 'never for a first attempt or a poll that keeps the QR');
+
+        // Linked: the poll would push. The hook answers instead, and nothing starts.
+        self::$api->link($user);
+        $from = count(self::$api->calls());
+        $this->assertSame($refused, self::runWithHook($tq, $user, $first['body']['token'], $refuse));
+        $this->assertSame(['GET /users/' . rawurlencode($user)], self::callsSince($from));
+        $waiting = self::runWithHook($tq, $user, $first['body']['token'], $goOn);
+        $this->assertSame('waiting', $waiting['body']['touchque']['state']);
+        $this->assertSame(2, $calls);
+
+        // A QR inside the margin would be renewed: the hook comes first there too.
+        self::$api->opts(['secretTtlMs' => 10000]);
+        try {
+            $other = 'enroll-hook-renew@acme.com';
+            $first = Guard::run($tq, $other, 'LOGIN');
+            $from = count(self::$api->calls());
+            $this->assertSame($refused, self::runWithHook($tq, $other, $first['body']['token'], $refuse));
+            $this->assertSame(['GET /users/' . rawurlencode($other)], self::callsSince($from), 'no new secret');
+            $renewed = self::runWithHook($tq, $other, $first['body']['token'], $goOn);
+            $this->assertSame('data:image/png;base64,QR2-' . $other, $renewed['body']['touchque']['enroll']['qrCodeDataUrl']);
+            $this->assertSame(4, $calls);
+        } finally {
+            self::$api->opts(['secretTtlMs' => null]);
+        }
+    }
+
+    public function testABeforeStartAnswerThatIsNoResultFailsClosed(): void
+    {
+        $this->cleanOpts();
+        $tq = $this->client();
+        $user = 'enroll-hook-bad@acme.com';
+        $first = Guard::run($tq, $user, 'LOGIN');
+        self::$api->link($user);
+        foreach ([true, 'refused', ['error' => 'RATE_LIMITED'], ['status' => 429]] as $bad) {
+            $from = count(self::$api->calls());
+            try {
+                self::runWithHook($tq, $user, $first['body']['token'], fn () => $bad);
+                $this->fail('a refusal that is not a result must not let the start go ahead: ' . json_encode($bad));
+            } catch (\InvalidArgumentException $e) {
+                $this->assertSame(['GET /users/' . rawurlencode($user)], self::callsSince($from), 'nothing started');
+            }
+        }
+    }
+
+    public function testAnEnrollStepWithoutAQrIsNoStatusPoll(): void
+    {
+        $tq = $this->client();
+        // enroll: false (a pre-auth relay): "not linked", no QR, so no expiry in the token.
+        $step = Guard::run($tq, 'enroll-none@acme.com', 'LOGIN', null, null, null, null, null, false, null, null, false);
+        $this->assertSame(['state' => 'enroll'], $step['body']['touchque']);
+        $this->assertFalse(Guard::isStatusPoll($tq, 'enroll-none@acme.com', 'LOGIN', null, null, $step['body']['token']));
+    }
+
+    public function testTheEnrollExpiryComesFromTtlMsWhenTheApiSendsNoDate(): void
+    {
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', 'http://127.0.0.1:9'));
+        $tq->login = $this->createMock(Login::class);
+        $tq->login->method('request')->willThrowException(new TouchqueAPIException('No linked device', 404, ['code' => 'device_not_linked']));
+        $tq->auth = $this->createMock(Auth::class);
+        $tq->auth->method('generateSecret')->willReturnOnConsecutiveCalls(
+            ['qrCodeDataUrl' => 'data:image/png;base64,QR', 'expiresAt' => 'soon', 'ttlMs' => 60000],
+            ['qrCodeDataUrl' => 'data:image/png;base64,QR', 'expiresAt' => 'soon']
+        );
+
+        $now = (int)(microtime(true) * 1000);
+        $withTtl = Guard::run($tq, 'ttl@acme.com', 'LOGIN');
+        $expiresAt = Steps::isoMs($withTtl['body']['touchque']['enroll']['expiresAt']);
+        $this->assertGreaterThanOrEqual($now + 60000, $expiresAt);
+        $this->assertLessThan($now + 65000, $expiresAt);
+        $this->assertTrue(Guard::isStatusPoll($tq, 'ttl@acme.com', 'LOGIN', null, null, $withTtl['body']['token']));
+
+        // Neither a date nor a lifetime: no expiry, and polls start again as before.
+        $none = Guard::run($tq, 'ttl@acme.com', 'LOGIN');
+        $this->assertNull($none['body']['touchque']['enroll']['expiresAt']);
+        $this->assertFalse(Guard::isStatusPoll($tq, 'ttl@acme.com', 'LOGIN', null, null, $none['body']['token']));
     }
 }
