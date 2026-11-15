@@ -4,6 +4,7 @@ namespace Touchque;
 
 use Touchque\Exceptions\TouchqueConfigException;
 use Touchque\Exceptions\TouchqueIdJagException;
+use Touchque\Exceptions\TouchqueNetworkException;
 
 /**
  * Cross App Access: Identity Assertion JWT Authorization Grants (ID-JAG,
@@ -83,11 +84,12 @@ final class CrossAppAccess
      *    with a character that is not an RFC 9110 token character throws TouchqueConfigException.
      *  - accessToken: for a call with a DPoP-bound access token (sent as `Authorization: DPoP <access token>`):
      *    adds ath, the token's SHA-256 hash.
-     *  - nonce: the server's DPoP-Nonce: adds the nonce claim.
+     *  - nonce: the server's DPoP-Nonce: adds the nonce claim (as given: not checked for nonce syntax).
      * htu is $url with its scheme and host lowercased, the default port (80 for http, 443 for https) dropped,
      * "/" for an empty path, the path kept as given (no dot-segment removal, no percent-encoding changes), and
-     * no user info, query or fragment; a URL with a control character throws TouchqueConfigException. The
-     * header's jwk is rebuilt from the key as exactly kty, crv, x and y.
+     * no user info, query or fragment; a URL that is not an absolute http or https URL, or that has a control
+     * character, throws TouchqueConfigException. The header's jwk is rebuilt from the key as exactly kty, crv,
+     * x and y.
      */
     public static function idJagDpopProof(array $key, string $url, array $options = []): string
     {
@@ -144,7 +146,10 @@ final class CrossAppAccess
         return $jwk;
     }
 
-    /** RFC 9449 htm: $method trimmed and uppercased, POST when that leaves nothing; only RFC 9110 token characters. */
+    /**
+     * RFC 9449 htm: $method with ASCII whitespace (space, \t, \n, \r, \v, \f; not NUL, not U+00A0) trimmed and
+     * uppercased, POST when that leaves nothing; only RFC 9110 token characters.
+     */
     private static function htm(string $method): string
     {
         $htm = strtr(trim($method, " \t\n\r\x0B\x0C"), self::LOWER, self::UPPER);
@@ -159,8 +164,9 @@ final class CrossAppAccess
     }
 
     /**
-     * RFC 9449 htu of $url: scheme and host lowercased, the default port (80 for http, 443 for https) dropped,
-     * "/" for an empty path, the path kept as given, and no user info, query or fragment.
+     * RFC 9449 htu of $url, an absolute http or https URL: scheme and host lowercased, the default port (80 for
+     * http, 443 for https) dropped, "/" for an empty path, the path kept as given, and no user info, query or
+     * fragment.
      */
     private static function htu(string $url): string
     {
@@ -169,11 +175,11 @@ final class CrossAppAccess
             throw new TouchqueConfigException('the URL ' . addcslashes($url, "\0..\37\177") . ' has a control character');
         }
         $u = parse_url($url);
-        if (!is_array($u) || ($u['scheme'] ?? '') === '' || ($u['host'] ?? '') === '') {
-            throw new TouchqueConfigException("{$url} is not an absolute URL");
+        $scheme = is_array($u) ? strtr($u['scheme'] ?? '', self::UPPER, self::LOWER) : '';
+        if (($scheme !== 'http' && $scheme !== 'https') || ($u['host'] ?? '') === '') {
+            throw new TouchqueConfigException("{$url} is not an absolute http or https URL");
         }
-        $scheme = strtr($u['scheme'], self::UPPER, self::LOWER);
-        $defaultPort = ['http' => 80, 'https' => 443][$scheme] ?? null;
+        $defaultPort = ['http' => 80, 'https' => 443][$scheme];
         $port = isset($u['port']) && $u['port'] !== $defaultPort ? ':' . $u['port'] : '';
         $path = $u['path'] ?? '';
         return $scheme . '://' . strtr($u['host'], self::UPPER, self::LOWER) . $port . ($path === '' ? '/' : $path);
@@ -190,52 +196,89 @@ final class CrossAppAccess
     }
 
     /**
-     * One token request: [the answer (a JSON object, else []), the latest valid DPoP-Nonce the server sent
-     * (else null)]. An answer of 400 or more, or none, throws TouchqueIdJagException with that nonce.
+     * One token request: [the answer, a JSON object; the latest valid DPoP-Nonce the server sent (else null)].
+     * Only a 2xx answer that is a JSON object is one: any other status (a redirect is not followed) throws
+     * TouchqueIdJagException with the answer's error (server_error when it is not an RFC 6749 error code), a
+     * 2xx that is not a JSON object invalid_response, and a request that gets no answer curl can read
+     * temporarily_unavailable; each with that nonce.
      */
     private static function postForm(string $url, array $form, ?array $basic, ?array $dpopKey = null): array
     {
         if (!self::safeUrl($url)) {
             throw new TouchqueConfigException("{$url} must be an https URL");
         }
+        $target = self::wireUrl($url);
         $body = http_build_query(array_filter($form, static fn ($v) => $v !== null), '', '&', PHP_QUERY_RFC3986);
         $headers = ['Accept: application/json', 'Content-Type: application/x-www-form-urlencoded'];
         if ($basic !== null) {
             $headers[] = 'Authorization: Basic ' . base64_encode(rawurlencode($basic[0]) . ':' . rawurlencode($basic[1]));
         }
-        $answer = self::send($url, $body, $headers, $dpopKey, null);
+        $answer = self::send($url, $target, $body, $headers, $dpopKey, null);
         $nonce = $answer['nonce'];
         // RFC 9449 section 8: the server wants its nonce in the proof. When its DPoP-Nonce header is one valid
         // value, the same request (body, client authentication) goes once more with a new proof carrying it;
         // never more than once.
         if ($dpopKey !== null && $nonce !== null && self::asksForNonce($answer)) {
-            $answer = self::send($url, $body, $headers, $dpopKey, $nonce);
+            $answer = self::send($url, $target, $body, $headers, $dpopKey, $nonce);
             $nonce = $answer['nonce'] ?? $nonce; // the retry's answer's, when it has one
         }
         $status = $answer['status'];
         $data = $answer['data'];
-        if ($answer['raw'] === false || $status >= 400) {
-            $error = $data['error'] ?? 'server_error';
-            $description = $data['error_description'] ?? "{$url} answered {$status}";
-            throw new TouchqueIdJagException(is_array($error) ? 'server_error' : (string)$error,
-                is_array($description) ? "{$url} answered {$status}" : (string)$description, $status ?: null, $nonce);
+        if ($status < 200 || $status > 299) {
+            // The code comes from the body only (never from WWW-Authenticate, which only decides the retry).
+            $description = $data['error_description'] ?? null;
+            throw new TouchqueIdJagException(self::errorCode($data['error'] ?? null),
+                is_string($description) && $description !== '' ? $description : "{$url} answered {$status}", $status ?: null, $nonce);
+        }
+        if ($data === null) {
+            throw new TouchqueIdJagException('invalid_response', "{$url} answered {$status} without a JSON object", $status, $nonce);
         }
         return [$data, $nonce];
     }
 
     /**
-     * One POST, with a new DPoP proof when there is a key: ['raw', 'status', 'data' (the answer when it is a
-     * JSON object, else []), 'nonce' (the DPoP-Nonce header when it is one value of valid nonce syntax, else
-     * null), 'challenge' (WWW-Authenticate)].
+     * The OAuth error code of a refusal (RFC 6749 section 5.2): the answer's error when it is a string of 1 to 128
+     * error characters (%x20-21 / %x23-5B / %x5D-7E: printable ASCII but " and \), else server_error.
      */
-    private static function send(string $url, string $body, array $headers, ?array $dpopKey, ?string $nonce): array
+    private static function errorCode($error): string
+    {
+        return is_string($error) && strlen($error) <= 128 && preg_match('/^[\x20\x21\x23-\x5B\x5D-\x7E]+$/D', $error) === 1 ? $error : 'server_error';
+    }
+
+    /**
+     * $url as curl sends it, so that the proof's htu is the path on the wire: in its path each byte from 0x80 up
+     * percent-encoded and the hex digits of each percent-encoding uppercased (what libcurl does to the path,
+     * the case in its recent versions only), everything else as given. With CURLOPT_PATH_AS_IS, curl then sends
+     * that path unchanged, dot segments included.
+     */
+    private static function wireUrl(string $url): string
+    {
+        if (!preg_match('~^([^:/?#]+://[^/?#]*)([^?#]*)(.*)$~sD', $url, $m)) {
+            return $url;
+        }
+        $path = preg_replace_callback('/%[0-9A-Fa-f]{2}|[\x80-\xFF]/', static function (array $c): string {
+            return $c[0][0] === '%' ? strtr($c[0], 'abcdef', 'ABCDEF') : sprintf('%%%02X', ord($c[0]));
+        }, $m[2]);
+        return $path === null ? $url : $m[1] . $path . $m[3];
+    }
+
+    /**
+     * One POST to $target ($url as curl sends it), with a new DPoP proof when there is a key: ['status', 'data'
+     * (the answer when it is a JSON object, else null), 'nonce' (the DPoP-Nonce header when it is one value of
+     * valid nonce syntax, else null), 'challenge' (WWW-Authenticate)]. No answer curl can read (refused, reset,
+     * DNS, timeout, a malformed or oversized answer, a body cut short) throws TouchqueIdJagException
+     * temporarily_unavailable with no status, $nonce (the latest valid DPoP-Nonce of the call so far: the one
+     * this request's proof carries) and curl's error as its previous exception; a URL curl refuses to send
+     * throws TouchqueConfigException.
+     */
+    private static function send(string $url, string $target, string $body, array $headers, ?array $dpopKey, ?string $nonce): array
     {
         if ($dpopKey !== null) {
-            $headers[] = 'DPoP: ' . self::idJagDpopProof($dpopKey, $url, ['nonce' => $nonce]);
+            $headers[] = 'DPoP: ' . self::idJagDpopProof($dpopKey, $target, ['nonce' => $nonce]);
         }
         $received = [];
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
+        $ch = curl_init($target);
+        $options = [
             CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10, CURLOPT_FOLLOWLOCATION => false, CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $body, CURLOPT_HTTPHEADER => $headers,
             CURLOPT_HEADERFUNCTION => static function ($ch, string $line) use (&$received): int {
@@ -247,24 +290,37 @@ final class CrossAppAccess
                 }
                 return strlen($line);
             },
-        ]);
+        ];
+        if (defined('CURLOPT_PATH_AS_IS')) { // libcurl 7.42 and later
+            $options[CURLOPT_PATH_AS_IS] = true; // no dot-segment removal: the path the proof's htu has
+        }
+        curl_setopt_array($ch, $options);
         $raw = curl_exec($ch);
+        if (!is_string($raw)) {
+            $errno = curl_errno($ch);
+            $why = curl_error($ch) ?: curl_strerror($errno);
+            if ($errno === CURLE_URL_MALFORMAT) {
+                throw new TouchqueConfigException("{$url} is not a URL curl can send: {$why}");
+            }
+            throw new TouchqueIdJagException('temporarily_unavailable', "{$url} could not be read: {$why}", null, $nonce,
+                new TouchqueNetworkException($why, $errno));
+        }
         $nonces = array_values(array_unique($received['dpop-nonce'] ?? []));
         return [
-            'raw' => $raw, 'status' => (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE), 'data' => self::jsonObject($raw),
+            'status' => (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE), 'data' => self::jsonObject($raw),
             'nonce' => count($nonces) === 1 && self::isNonce($nonces[0]) ? $nonces[0] : null,
             'challenge' => implode(', ', $received['www-authenticate'] ?? []),
         ];
     }
 
-    /** $raw decoded when it is a JSON object, else [] (not JSON, or a JSON string, number, boolean, null or list). */
-    private static function jsonObject($raw): array
+    /** $raw decoded when it is a JSON object, else null (not JSON, or a JSON string, number, boolean, null or list). */
+    private static function jsonObject(string $raw): ?array
     {
-        if (!is_string($raw) || ($raw[strspn($raw, " \t\n\r")] ?? '') !== '{') {
-            return [];
+        if (($raw[strspn($raw, " \t\n\r")] ?? '') !== '{') {
+            return null;
         }
         $data = json_decode($raw, true);
-        return is_array($data) ? $data : [];
+        return is_array($data) ? $data : null;
     }
 
     /** RFC 9449 section 8.1: nonce = 1*NQCHAR, NQCHAR = %x21 / %x23-5B / %x5D-7E (printable ASCII but space, " and \). */
@@ -391,7 +447,8 @@ final class CrossAppAccess
      * Options: issuer or tokenEndpoint, clientId, clientSecret, idToken, audience, resource?, scope?,
      * dpopKey? (binds the ID-JAG to that key; redeem it with the same key).
      * Returns ['assertion' => …, 'expiresIn' => …, 'scope' => …], plus with dpopKey 'dpopBound': whether
-     * the returned ID-JAG carries that key's thumbprint (cnf.jkt).
+     * the returned ID-JAG carries that key's thumbprint (cnf.jkt). Throws TouchqueIdJagException as
+     * redeemIdJag does, and invalid_response for a JSON object that is not an ID-JAG.
      */
     public static function requestIdJag(array $o): array
     {
@@ -430,7 +487,13 @@ final class CrossAppAccess
      * Options: tokenEndpoint, clientId, clientSecret?, assertion, resource?, scope?, dpopKey? (the key the
      * ID-JAG is bound to: a DPoP proof goes along, and the access token is then DPoP-bound too: each
      * call with it carries idJagDpopProof($dpopKey, $url, ['method' => …, 'accessToken' => …])).
-     * Returns the token endpoint's answer (a JSON object; [] for anything else).
+     * Returns the token endpoint's answer, a JSON object. Anything else throws TouchqueIdJagException (here
+     * and in requestIdJag): an answer that is not 2xx (a redirect is not followed), with that status and the
+     * answer's error when it is an RFC 6749 error code (1 to 128 printable ASCII characters but " and \), else
+     * server_error; a 2xx that is not a JSON object, invalid_response with that status; no answer curl can read
+     * (refused, reset, DNS, timeout, a malformed or oversized answer, a body cut short), temporarily_unavailable
+     * with no status, curl's error being its getPrevious() (a TouchqueNetworkException with curl's message and
+     * CURLE_* number). A URL curl refuses to send throws TouchqueConfigException.
      * With dpopKey, a 400 or 401 use_dpop_nonce whose DPoP-Nonce header is one value of valid nonce syntax
      * (RFC 9449: printable ASCII but space, " and \) gets the same request once more with a proof carrying
      * that nonce (here and in requestIdJag); a missing or empty one, one repeated with different values, or

@@ -9,6 +9,7 @@ use Touchque\CrossAppAccess;
 use Touchque\Exceptions\TouchqueAgentCardException;
 use Touchque\Exceptions\TouchqueConfigException;
 use Touchque\Exceptions\TouchqueIdJagException;
+use Touchque\Exceptions\TouchqueNetworkException;
 use Touchque\IdJagVerifier;
 use Touchque\McpAuth;
 
@@ -21,7 +22,10 @@ use Touchque\McpAuth;
  * changed or pointed elsewhere. DPoP (RFC 9449): the proofs, and token
  * endpoints written here (PHP's built-in server) that bind to the proof's key
  * or ask for a nonce, with nonce headers and WWW-Authenticate challenges of
- * every shape, up to 64 KB.
+ * every shape, up to 64 KB. Token endpoints on a raw socket (answers PHP's
+ * built-in server cannot give: no answer, a header curl refuses, a body cut
+ * short, any status line): what is an error and which, and the path on the
+ * wire against the proof's htu.
  */
 class CrossAppAccessTest extends TestCase
 {
@@ -308,6 +312,11 @@ PHP;
         // Each access token its own ath; an empty or null option adds nothing.
         $this->assertSame(AgentKeys::b64url(hash('sha256', 'at-2', true)), self::proofParts(CrossAppAccess::idJagDpopProof($key, 'https://a.example/x', ['accessToken' => 'at-2']))['payload']['ath']);
         $this->assertSame(['htm', 'htu', 'iat', 'jti'], array_keys(self::proofParts(CrossAppAccess::idJagDpopProof($key, 'https://a.example/x', ['accessToken' => null, 'nonce' => '']))['payload']));
+        $this->assertSame(['htm', 'htu', 'iat', 'jti'], array_keys(self::proofParts(CrossAppAccess::idJagDpopProof($key, 'https://a.example/x', ['accessToken' => '', 'nonce' => null]))['payload']));
+        // A nonce given by hand goes in as it is: not checked for nonce syntax (the server judges it).
+        foreach (['a b', 'n"1', 'n\\1', 'nönce', "n\t1"] as $nonce) {
+            $this->assertSame($nonce, self::proofParts(CrossAppAccess::idJagDpopProof($key, 'https://a.example/x', ['nonce' => $nonce]))['payload']['nonce'], $nonce);
+        }
 
         // Only the public members go in the header, whatever the key array carries.
         $padded = ['privateKey' => $key['privateKey'], 'publicJwk' => $key['publicJwk'] + ['d' => 'private', 'kid' => 'k1', 'alg' => 'ES256'], 'thumbprint' => 'x'];
@@ -346,13 +355,22 @@ PHP;
     {
         $key = CrossAppAccess::createIdJagDpopKey();
         $htm = static fn (array $options) => self::proofParts(CrossAppAccess::idJagDpopProof($key, 'https://a.example/x', $options))['payload']['htm'];
-        // Trimmed and uppercased; nothing left (or no method): POST.
-        foreach (['' => 'POST', " \t\r\n " => 'POST', ' get ' => 'GET', "patch\n" => 'PATCH', 'Options' => 'OPTIONS', 'm-search' => 'M-SEARCH', "!#$%&'*+-.^_`|~09az" => "!#$%&'*+-.^_`|~09AZ"] as $method => $sent) {
+        // ASCII whitespace (space, \t, \n, \r, \v, \f) trimmed, then uppercased; nothing left (or no method): POST.
+        $trimmed = [
+            '' => 'POST', " \t\r\n " => 'POST', " \t\n\r\x0B\x0C" => 'POST', ' get ' => 'GET', "patch\n" => 'PATCH', "\x0Bget\x0C" => 'GET', "\r\nput\t" => 'PUT',
+            'Options' => 'OPTIONS', 'm-search' => 'M-SEARCH', "!#$%&'*+-.^_`|~09az" => "!#$%&'*+-.^_`|~09AZ",
+        ];
+        foreach ($trimmed as $method => $sent) {
             $this->assertSame($sent, $htm(['method' => (string)$method]), json_encode($method));
         }
         $this->assertSame('POST', $htm(['method' => null]));
-        // Not an RFC 9110 token: a configuration error, before anything is signed.
-        foreach (['GE T', 'GET(', 'G"ET', 'GET/1', 'GÉT', "G\x00T", "G\xffT", 'GET,POST'] as $method) {
+        // Not an RFC 9110 token: a configuration error, before anything is signed. NUL and Unicode spaces (U+00A0,
+        // U+0085, U+2003) are not trimmed; no Unicode case mapping (the long s of "ſet" is no S).
+        $notTokens = [
+            'GE T', 'GET(', 'G"ET', 'GET/1', 'GÉT', "G\x00T", "G\xffT", 'GET,POST', "\x00GET", "GET\x00", "\xC2\xA0GET", "GET\xC2\xA0", "\xC2\x85GET", "\xE2\x80\x83GET",
+            "\x1CGET", "GET\x1F", "GET\x7F", 'ſet', 'é',
+        ];
+        foreach ($notTokens as $method) {
             $this->assertSame(
                 'CrossAppAccess::idJagDpopProof(): method ' . json_encode($method, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . ' is not an HTTP method (RFC 9110 token characters only)',
                 self::configError(fn () => $htm(['method' => $method]))
@@ -394,13 +412,16 @@ PHP;
         foreach ($cases as $url => $htu) {
             $this->assertSame($htu, self::proofParts(CrossAppAccess::idJagDpopProof($key, $url))['payload']['htu'], $url);
         }
-        foreach (['/token', 'sso.touchque.com/token', 'https:///token'] as $url) {
-            try {
-                CrossAppAccess::idJagDpopProof($key, $url);
-                $this->fail("accepted {$url}");
-            } catch (TouchqueConfigException $e) {
-                $this->assertSame("{$url} is not an absolute URL", $e->getMessage());
-            }
+        // Only an absolute http or https URL (the scheme in any case).
+        $this->assertSame('https://h.example/', self::proofParts(CrossAppAccess::idJagDpopProof($key, 'HTTPS://H.EXAMPLE'))['payload']['htu']);
+        $this->assertSame('http://h.example/x', self::proofParts(CrossAppAccess::idJagDpopProof($key, 'Http://h.example/x'))['payload']['htu']);
+        $notHttp = [
+            '/token', 'sso.touchque.com/token', 'https:///token', 'https:/token', '//h.example/token', 'ftp://h.example/x', 'FTP://h.example/x', 'ws://h.example/x',
+            'wss://h.example/x', 'file:///etc/hosts', 'file://h.example/x', 'mailto:a@h.example', 'data:text/plain,x', 'javascript://h.example/%0aalert(1)',
+            'httpx://h.example/x', 'http+unix://h.example/x', 'https+x://h.example/x', 'http:', '',
+        ];
+        foreach ($notHttp as $url) {
+            $this->assertSame("{$url} is not an absolute http or https URL", self::configError(fn () => CrossAppAccess::idJagDpopProof($key, $url)), $url);
         }
         // A control character would come out of parse_url() as "_": refused instead.
         foreach (["https://example.com/x\ty" => 'https://example.com/x\ty', "https://example.com/x\n" => 'https://example.com/x\n', "https://exa\x7Fmple.com/" => 'https://exa\177mple.com/'] as $url => $shown) {
@@ -503,7 +524,7 @@ PHP;
             $this->assertSame(['use_dpop_nonce', 403, 'n-9'], [$e->error, $e->status, $e->dpopNonce]);
             $this->assertCount(1, $requests());
 
-            // An error from the verifier or the network has no nonce.
+            // An error made without one has no nonce.
             $this->assertNull((new TouchqueIdJagException('invalid_grant', 'expired'))->dpopNonce);
         });
     }
@@ -654,17 +675,342 @@ PHP;
     public function testATokenAnswerThatIsNotAJsonObject(): void
     {
         // A JSON string, number or boolean with a status below 400 used to end in a TypeError (postForm's
-        // array return type). Any answer that is not a JSON object now counts as an empty one.
+        // array return type), and redeemIdJag() returned [] for anything else. A 2xx answer that is not a JSON
+        // object is now invalid_response with its status, in both calls.
         $this->withServer(self::NONCE_ROUTER, function (string $local) {
-            foreach (['"ok"', '123', '1.5', 'true', 'false', 'null', '[1,2]', ' [{"access_token":"at"}]', 'not json', ''] as $body) {
+            foreach (['"ok"', '123', '1.5', 'true', 'false', 'null', '[1,2]', '[]', ' [{"access_token":"at"}]', 'not json', '', '{"a":1} x', "\xEF\xBB\xBF{}"] as $body) {
                 $url = $local . '/not-an-object/token?' . http_build_query(['b' => $body]);
-                $e = self::idJagError(fn () => CrossAppAccess::requestIdJag(['tokenEndpoint' => $url, 'clientId' => 'tqapp_test',
-                    'clientSecret' => 'tqs_test', 'idToken' => 'idtoken:ada', 'audience' => 'https://rs.example']));
-                $this->assertSame('invalid_response', $e->error, $body);
-                $this->assertSame([], CrossAppAccess::redeemIdJag(['tokenEndpoint' => $url, 'clientId' => 'acme-at-rs', 'assertion' => 'jag']), $body);
+                foreach ([self::request($url), self::redeem($url)] as $i => $call) {
+                    $e = self::idJagError($call);
+                    $this->assertSame(['invalid_response', 200, null], [$e->error, $e->status, $e->dpopNonce], "{$i} {$body}");
+                    $this->assertSame("{$url} answered 200 without a JSON object", $e->getMessage());
+                }
             }
-            $this->assertSame(['access_token' => 'at'], CrossAppAccess::redeemIdJag(['tokenEndpoint' => $local . '/not-an-object/token?b=' . rawurlencode(" \n{\"access_token\":\"at\"}"),
-                'clientId' => 'acme-at-rs', 'assertion' => 'jag']));
+            // A JSON object is one, blanks around it and all; {} too (requestIdJag: no ID-JAG in it).
+            $this->assertSame(['access_token' => 'at'], self::redeem($local . '/not-an-object/token?b=' . rawurlencode(" \n{\"access_token\":\"at\"}\r\n"))());
+            $this->assertSame([], self::redeem($local . '/not-an-object/token?b=%7B%7D')());
+            $e = self::idJagError(self::request($local . '/not-an-object/token?b=%7B%7D'));
+            $this->assertSame(['invalid_response', null, 'the identity provider did not answer with an ID-JAG'], [$e->error, $e->status, $e->getMessage()]);
+        });
+    }
+
+    /** requestIdJag() at $url with the test client, as a callable; with $dpopKey bound to it. */
+    private static function request(string $url, ?array $dpopKey = null): callable
+    {
+        return static fn () => CrossAppAccess::requestIdJag(['tokenEndpoint' => $url, 'clientId' => 'tqapp_test', 'clientSecret' => 'tqs_test',
+            'idToken' => 'idtoken:ada', 'audience' => 'https://rs.example', 'dpopKey' => $dpopKey]);
+    }
+
+    /** redeemIdJag() at $url with the test client, as a callable; with $dpopKey bound to it. */
+    private static function redeem(string $url, ?array $dpopKey = null): callable
+    {
+        return static fn () => CrossAppAccess::redeemIdJag(['tokenEndpoint' => $url, 'clientId' => 'acme-at-rs', 'clientSecret' => 's3cret', 'assertion' => 'jag', 'dpopKey' => $dpopKey]);
+    }
+
+    /**
+     * A raw HTTP/1.1 server in its own process, for answers PHP's built-in server cannot give. argv[1]: a JSON
+     * file mapping a request path to the raw answers it gets in turn (base64; null closes the connection
+     * without answering; the last one repeats; "*" for any other path). argv[2]: a file it appends one JSON
+     * line per request to (request-target, headers, body). It prints its address, then serves until stopped.
+     */
+    private const RAW_SERVER = <<<'PHP'
+<?php
+$script = json_decode(file_get_contents($argv[1]), true);
+$server = stream_socket_server('tcp://127.0.0.1:0');
+echo stream_socket_get_name($server, false), "\n";
+$turn = [];
+for (;;) {
+    if (!($conn = @stream_socket_accept($server, 60))) {
+        continue;
+    }
+    $in = '';
+    while (strpos($in, "\r\n\r\n") === false && ($chunk = fread($conn, 65536)) !== false && $chunk !== '') {
+        $in .= $chunk;
+    }
+    [$head, $body] = array_pad(explode("\r\n\r\n", $in, 2), 2, '');
+    $lines = explode("\r\n", $head);
+    $target = explode(' ', $lines[0])[1] ?? '';
+    $headers = [];
+    foreach (array_slice($lines, 1) as $line) {
+        [$name, $value] = array_pad(explode(':', $line, 2), 2, '');
+        $headers[strtolower(trim($name))] = trim($value);
+    }
+    while (strlen($body) < (int)($headers['content-length'] ?? 0) && ($chunk = fread($conn, 65536)) !== false && $chunk !== '') {
+        $body .= $chunk;
+    }
+    $path = explode('?', $target, 2)[0];
+    $answers = $script[$path] ?? $script['*'];
+    $turn[$path] = ($turn[$path] ?? -1) + 1;
+    file_put_contents($argv[2], json_encode(['target' => $target, 'headers' => $headers, 'body' => $body], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . "\n", FILE_APPEND);
+    $answer = $answers[min($turn[$path], count($answers) - 1)];
+    for ($answer = (string)base64_decode((string)$answer), $sent = 0; $sent < strlen($answer) && ($n = fwrite($conn, substr($answer, $sent))); $sent += $n) {
+    }
+    fclose($conn);
+}
+PHP;
+
+    /**
+     * Runs $fn($baseUrl, $requests) against RAW_SERVER answering $script (request path => raw answers, null to
+     * close without answering; any other path: 404). $requests() returns the requests seen and forgets them.
+     */
+    private function withRawServer(array $script, callable $fn): void
+    {
+        $dir = sys_get_temp_dir() . '/tq-raw-' . bin2hex(random_bytes(6));
+        mkdir($dir);
+        $files = ['server' => "{$dir}/server.php", 'script' => "{$dir}/script.json", 'log' => "{$dir}/seen.jsonl"];
+        file_put_contents($files['server'], self::RAW_SERVER);
+        $script += ['*' => [self::raw(404, [], '{"error":"not_found"}')]];
+        file_put_contents($files['script'], json_encode(array_map(static fn (array $answers) => array_map(static fn (?string $a) => $a === null ? null : base64_encode($a), $answers), $script)));
+        $server = proc_open([PHP_BINARY, $files['server'], $files['script'], $files['log']], [1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+        try {
+            $address = trim((string)fgets($pipes[1]));
+            $this->assertMatchesRegularExpression('/^127\.0\.0\.1:\d+$/', $address, 'the raw server did not start');
+            $fn("http://{$address}", static function () use ($files): array {
+                $lines = is_file($files['log']) ? file($files['log'], FILE_IGNORE_NEW_LINES) : [];
+                @unlink($files['log']);
+                return array_map(static fn ($l) => json_decode($l, true), $lines);
+            });
+        } finally {
+            proc_terminate($server);
+            fclose($pipes[1]);
+            proc_close($server);
+            foreach ($files as $file) {
+                @unlink($file);
+            }
+            @rmdir($dir);
+        }
+    }
+
+    /** A raw HTTP/1.1 answer: the status line, $headerLines as they are, Content-Length, Connection: close and $body. */
+    private static function raw(int $status, array $headerLines, string $body = ''): string
+    {
+        return "HTTP/1.1 {$status} X\r\n" . implode('', array_map(static fn (string $line) => "{$line}\r\n", $headerLines))
+            . 'Content-Length: ' . strlen($body) . "\r\nConnection: close\r\n\r\n" . $body;
+    }
+
+    /** A port nothing listens on. */
+    private static function closedPort(): int
+    {
+        $probe = stream_socket_server('tcp://127.0.0.1:0');
+        $port = (int)substr(strrchr(stream_socket_get_name($probe, false), ':'), 1);
+        fclose($probe);
+        return $port;
+    }
+
+    /** curl's error number for a plain POST to $url (as the SDK makes it: no redirect followed), 0 when it reads an answer. */
+    private static function curlErrno(string $url): int
+    {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true, CURLOPT_POSTFIELDS => 'a=b', CURLOPT_TIMEOUT => 10, CURLOPT_FOLLOWLOCATION => false]);
+        return curl_exec($ch) === false ? curl_errno($ch) : 0;
+    }
+
+    /** Asserts that $e is temporarily_unavailable for $url: no status, $nonce, curl's error $errno as its previous exception. */
+    private function assertUnavailable(TouchqueIdJagException $e, string $url, ?string $nonce, int $errno, string $case): void
+    {
+        $this->assertSame(['temporarily_unavailable', null, $nonce, 0], [$e->error, $e->status, $e->dpopNonce, $e->getCode()], $case);
+        $cause = $e->getPrevious();
+        $this->assertInstanceOf(TouchqueNetworkException::class, $cause, $case);
+        $this->assertSame($errno, $cause->getCode(), $case);
+        $this->assertNotSame('', $cause->getMessage(), $case);
+        $this->assertSame("{$url} could not be read: {$cause->getMessage()}", $e->getMessage(), $case);
+    }
+
+    public function testATokenEndpointThatCannotBeReachedOrReadIsTemporarilyUnavailable(): void
+    {
+        // Refused: curl's CURLE_COULDNT_CONNECT, with or without a key, in both calls; no nonce yet.
+        $refused = 'http://127.0.0.1:' . self::closedPort() . '/token';
+        $key = CrossAppAccess::createIdJagDpopKey();
+        foreach ([self::request($refused), self::redeem($refused), self::request($refused, $key), self::redeem($refused, $key)] as $i => $call) {
+            $this->assertUnavailable(self::idJagError($call), $refused, null, CURLE_COULDNT_CONNECT, "refused {$i}");
+        }
+
+        $ok = '{"access_token":"at","token_type":"DPoP"}';
+        $ask = self::raw(400, ['Content-Type: application/json', 'DPoP-Nonce: n-1'], '{"error":"use_dpop_nonce"}');
+        // Answers curl cannot read. The first two fail in every libcurl; whether curl refuses the others
+        // depends on its version (libcurl 8.21 refuses them all): the SDK's outcome follows curl's.
+        $unreadable = [
+            '/closed' => null, // the connection closed without an answer: CURLE_GOT_NOTHING
+            '/cut-short' => "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{$ok}", // CURLE_PARTIAL_FILE
+            '/line-over-100k' => self::raw(200, ['X-Big: ' . str_repeat('a', 102400)], $ok),
+            '/nul' => self::raw(200, ["X-Note: a\x00b"], $ok),
+            '/cr' => self::raw(200, ["X-Note: a\rb"], $ok),
+            '/no-colon' => self::raw(200, ['No colon here'], $ok),
+            '/over-300k' => self::raw(200, array_map(static fn (int $i) => "X-Big-{$i}: " . str_repeat('a', 60000), range(1, 6)), $ok),
+            '/bad-chunk' => "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nzz\r\n{$ok}",
+            '/not-http' => "{$ok}\r\n\r\n",
+            '/bad-status-line' => "HTTP/1.1 2x0 OK\r\nContent-Length: 2\r\n\r\n{}",
+        ];
+        $script = [];
+        foreach ($unreadable as $path => $answer) {
+            $script[$path] = [$answer];                      // the first answer
+            $script["/plain{$path}"] = [$answer];            // the same, for a plain curl request
+            $script["/retry{$path}"] = [$ask, $answer];      // the nonce retry's answer
+            $script["/nonce-first{$path}"] = [$answer === null ? null : preg_replace('/^(HTTP[^\r]*\r\n)/', "\$1DPoP-Nonce: n-9\r\n", $answer)];
+        }
+        $this->withRawServer($script, function (string $local, callable $requests) use ($unreadable, $key) {
+            foreach ($unreadable as $path => $answer) {
+                $errno = self::curlErrno("{$local}/plain{$path}");
+                if (in_array($path, ['/closed', '/cut-short'], true)) {
+                    $this->assertSame($path === '/closed' ? CURLE_GOT_NOTHING : CURLE_PARTIAL_FILE, $errno, $path);
+                }
+                foreach ([self::redeem("{$local}{$path}"), self::request("{$local}{$path}", $key)] as $i => $call) {
+                    if ($errno !== 0) {
+                        $this->assertUnavailable(self::idJagError($call), "{$local}{$path}", null, $errno, "{$path} {$i}");
+                    } elseif ($i === 0) {
+                        // This libcurl reads the answer: the usual outcome (a 200 with an access token, no ID-JAG).
+                        $this->assertSame('at', $call()['access_token'], $path);
+                    } else {
+                        $this->assertSame('invalid_response', self::idJagError($call)->error, $path);
+                    }
+                }
+                $requests();
+                if ($errno === 0) {
+                    continue;
+                }
+                // On the nonce retry: the nonce of the answer that asked for it, the same request sent twice.
+                $url = "{$local}/retry{$path}";
+                $this->assertUnavailable(self::idJagError(self::redeem($url, $key)), $url, 'n-1', $errno, "retry {$path}");
+                $this->assertSentOnceMore(array_map(static fn (array $r) => ['path' => $r['target'], 'body' => $r['body'], 'authorization' => $r['headers']['authorization'],
+                    'dpop' => $r['headers']['dpop'], 'proof' => json_decode(AgentKeys::b64urlDecode(explode('.', $r['headers']['dpop'])[1]), true)], $requests()), 'n-1');
+                // A nonce in an answer curl could not read is not the answer's: none on the error.
+                $url = "{$local}/nonce-first{$path}";
+                $this->assertUnavailable(self::idJagError(self::redeem($url, $key)), $url, null, $errno, "nonce-first {$path}");
+                $this->assertCount(1, $requests(), $path);
+            }
+        });
+    }
+
+    public function testOnlyA2xxIsAnAnswer(): void
+    {
+        $object = '{"access_token":"at","token_type":"Bearer","error":"invalid_grant"}';
+        $jag = '{"access_token":"jag","issued_token_type":"urn:ietf:params:oauth:token-type:id-jag","token_type":"N_A"}';
+        $answers = [
+            // Redirects are not followed and are no answer: an error with their status, the body's error when it has one.
+            '/302' => [self::raw(302, ['Location: /elsewhere', 'DPoP-Nonce: n-3'], $jag), 302, 'server_error', 'n-3'],
+            '/302-error' => [self::raw(302, ['Location: /elsewhere'], '{"error":"temporarily_unavailable","error_description":"moved"}'), 302, 'temporarily_unavailable', null],
+            '/301' => [self::raw(301, ['Location: https://elsewhere.example/token']), 301, 'server_error', null],
+            '/303' => [self::raw(303, ['Location: /elsewhere'], $object), 303, 'invalid_grant', null],
+            '/307' => [self::raw(307, ['Location: /elsewhere']), 307, 'server_error', null],
+            '/308' => [self::raw(308, ['Location: /elsewhere'], $jag), 308, 'server_error', null],
+            '/300' => [self::raw(300, [], $jag), 300, 'server_error', null],
+            '/304' => ["HTTP/1.1 304 Not Modified\r\nDPoP-Nonce: n-4\r\nConnection: close\r\n\r\n", 304, 'server_error', 'n-4'],
+            '/399' => [self::raw(399, [], $jag), 399, 'server_error', null],
+            '/999' => [self::raw(999, [], $object), 999, 'invalid_grant', null],
+            // A 2xx that is not a JSON object: invalid_response with its status (and its nonce).
+            '/200-null' => [self::raw(200, ['DPoP-Nonce: n-5'], 'null'), 200, 'invalid_response', 'n-5'],
+            '/200-html' => [self::raw(200, ['Content-Type: text/html'], '<html>hi</html>'), 200, 'invalid_response', null],
+            '/200-list' => [self::raw(200, [], '[' . $jag . ']'), 200, 'invalid_response', null],
+            '/200-empty' => [self::raw(200, []), 200, 'invalid_response', null],
+            '/204' => ["HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n", 204, 'invalid_response', null],
+            '/299-string' => [self::raw(299, [], '"ok"'), 299, 'invalid_response', null],
+        ];
+        $script = array_map(static fn (array $a) => [$a[0]], $answers) + [
+            '/201' => [self::raw(201, [], $jag)], '/206' => [self::raw(206, [], $jag)], '/299' => [self::raw(299, [], $jag)],
+            // The retry's 2xx that is not a JSON object: the first answer's nonce.
+            '/retry-200-null' => [self::raw(400, ['DPoP-Nonce: n-1'], '{"error":"use_dpop_nonce"}'), self::raw(200, [], 'null')],
+            '/retry-302' => [self::raw(400, ['DPoP-Nonce: n-1'], '{"error":"use_dpop_nonce"}'), self::raw(302, ['Location: /x', 'DPoP-Nonce: n-2'], $jag)],
+        ];
+        $this->withRawServer($script, function (string $local, callable $requests) use ($answers) {
+            $key = CrossAppAccess::createIdJagDpopKey();
+            foreach ($answers as $path => [, $status, $code, $nonce]) {
+                foreach ([self::request($local . $path), self::redeem($local . $path), self::request($local . $path, $key), self::redeem($local . $path, $key)] as $i => $call) {
+                    $e = self::idJagError($call);
+                    $this->assertSame([$code, $status, $nonce], [$e->error, $e->status, $e->dpopNonce], "{$path} {$i}");
+                    $this->assertSame($status, $e->getCode(), "{$path} {$i}");
+                    $this->assertNull($e->getPrevious());
+                }
+                $this->assertCount(4, $requests(), $path); // never followed, never retried
+            }
+            $this->assertSame('moved', self::idJagError(self::redeem("{$local}/302-error"))->getMessage());
+            $this->assertSame("{$local}/302 answered 302", self::idJagError(self::redeem("{$local}/302"))->getMessage());
+            // Every 2xx with a JSON object is an answer.
+            foreach (['/201', '/206', '/299'] as $path) {
+                $this->assertSame('jag', self::request($local . $path)()['assertion'], $path);
+                $this->assertSame('jag', self::redeem($local . $path, $key)()['access_token'], $path);
+            }
+            // The nonce of the answer that asked for it when the retry's answer has none.
+            $e = self::idJagError(self::redeem("{$local}/retry-200-null", $key));
+            $this->assertSame(['invalid_response', 200, 'n-1'], [$e->error, $e->status, $e->dpopNonce]);
+            $e = self::idJagError(self::request("{$local}/retry-302", $key));
+            $this->assertSame(['server_error', 302, 'n-2'], [$e->error, $e->status, $e->dpopNonce]);
+            $requests();
+        });
+    }
+
+    public function testTheErrorCodeIsTheAnswersOnlyWhenItIsAnOauthErrorCode(): void
+    {
+        // RFC 6749 section 5.2: error = 1*( %x20-21 / %x23-5B / %x5D-7E ); at most 128 characters here.
+        $edge = ' !#$%&\'()*+,-./09:;<=>?@AZ[]^_`az{|}~';
+        $kept = ['invalid_grant', 'use_dpop_nonce', 'x', ' ', $edge, str_repeat('e', 128)];
+        $refused = [5, 1.5, true, false, null, ['invalid_grant'], ['error' => 'invalid_grant'], '', 'a"b', 'a\\b', "a\tb", "a\nb", "a\x00b", "a\x7Fb", 'é', str_repeat('e', 129)];
+        $script = [];
+        foreach (array_merge($kept, $refused) as $i => $error) {
+            $script["/e{$i}"] = [self::raw(400, ['DPoP-Nonce: n-1'], json_encode(['error' => $error, 'error_description' => "case {$i}"]))];
+        }
+        $script['/missing'] = [self::raw(400, [], '{"error_description":"no code"}')];
+        $script['/descriptions'] = [self::raw(401, ['WWW-Authenticate: DPoP error="invalid_dpop_proof"'], '{"error":"invalid_client","error_description":5}')];
+        $script['/empty-description'] = [self::raw(403, [], '{"error":"access_denied","error_description":""}')];
+        $script['/challenge-only'] = [self::raw(401, ['WWW-Authenticate: DPoP error="invalid_dpop_proof"', 'WWW-Authenticate: Bearer error="invalid_token"'])];
+        $this->withRawServer($script, function (string $local) use ($kept, $refused) {
+            foreach (array_merge($kept, $refused) as $i => $error) {
+                $expected = $i < count($kept) ? $error : 'server_error';
+                foreach ([self::request("{$local}/e{$i}"), self::redeem("{$local}/e{$i}")] as $call) {
+                    $e = self::idJagError($call);
+                    $this->assertSame([$expected, 400, 'n-1', "case {$i}"], [$e->error, $e->status, $e->dpopNonce, $e->getMessage()], json_encode($error));
+                }
+            }
+            $this->assertSame(['server_error', 'no code'], [($e = self::idJagError(self::redeem("{$local}/missing")))->error, $e->getMessage()]);
+            // A description that is not a non-empty string: the default message.
+            $this->assertSame(['invalid_client', "{$local}/descriptions answered 401"], [($e = self::idJagError(self::redeem("{$local}/descriptions")))->error, $e->getMessage()]);
+            $this->assertSame(['access_denied', "{$local}/empty-description answered 403"], [($e = self::idJagError(self::redeem("{$local}/empty-description")))->error, $e->getMessage()]);
+            // The code never comes from WWW-Authenticate.
+            $this->assertSame(['server_error', 401], [($e = self::idJagError(self::request("{$local}/challenge-only")))->error, $e->status]);
+        });
+    }
+
+    public function testTheProofsHtuIsThePathCurlSends(): void
+    {
+        // RFC 9449 htu: the token endpoint's path exactly as curl puts it on the wire (CURLOPT_PATH_AS_IS: dot
+        // segments kept; bytes from 0x80 up percent-encoded and percent-encodings in uppercase, as libcurl
+        // sends them), in both calls and on the nonce retry.
+        $paths = [
+            '/a/../token', '/x/./token', '/t/%7e', '/a/%2e%2e/token', '/t/a%20b', '/t/a~b', '/t/a|b', '/t/é', '/t/%c3%a9', '//double//slash/', '/t/.', '/t/..',
+            '/t/%zz', '/t/%', '/t/a\\b', '/t/a{b}^`', '/t/%7E%2f%2F', '/../token', '/t/' . "\xFF\x80",
+        ];
+        $this->withRawServer([
+            '*' => [self::raw(200, [], '{"access_token":"at","token_type":"DPoP"}')],
+            '/retry/../token' => [self::raw(400, ['DPoP-Nonce: n-1'], '{"error":"use_dpop_nonce"}'), self::raw(200, [], '{"access_token":"at","token_type":"DPoP"}')],
+        ], function (string $local, callable $requests) use ($paths) {
+            $key = CrossAppAccess::createIdJagDpopKey();
+            foreach ($paths as $path) {
+                $this->assertSame('at', self::redeem("{$local}{$path}?q=%7e#f", $key)()['access_token'], $path);
+                self::idJagError(self::request("{$local}{$path}", $key)); // not an ID-JAG: invalid_response
+            }
+            self::redeem("{$local}/retry/../token", $key)();
+            $seen = $requests();
+            $this->assertCount(2 * count($paths) + 2, $seen);
+            foreach ($seen as $request) {
+                $proof = json_decode(AgentKeys::b64urlDecode(explode('.', $request['headers']['dpop'])[1]), true);
+                $this->assertSame($local . explode('?', $request['target'], 2)[0], $proof['htu'], $request['target']);
+            }
+            $this->assertSame(['/a/../token?q=%7e', '/a/../token', '/x/./token?q=%7e', '/x/./token', '/t/%7E?q=%7e'], array_column(array_slice($seen, 0, 5), 'target'));
+            $this->assertSame('/t/%C3%A9', explode('?', $seen[14]['target'])[0]);
+        });
+    }
+
+    public function testATokenEndpointUrlCurlRefusesIsAConfigurationError(): void
+    {
+        // A URL curl will not send (a space, a control character) never reaches the network.
+        $this->withRawServer([], function (string $local, callable $requests) {
+            $key = CrossAppAccess::createIdJagDpopKey();
+            foreach (["{$local}/a b", "{$local}/a\tb", "{$local}/a\x7Fb"] as $url) {
+                foreach ([self::request($url), self::redeem($url), self::request($url, $key), self::redeem($url, $key)] as $i => $call) {
+                    $message = self::configError($call);
+                    $this->assertMatchesRegularExpression('/ is not a URL curl can send: | has a control character$/', $message, "{$i} " . json_encode($url));
+                }
+            }
+            $this->assertSame([], $requests());
         });
     }
 
