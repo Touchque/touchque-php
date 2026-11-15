@@ -36,8 +36,11 @@ $middleware->alias(['touchque' => \Touchque\Laravel\TouchqueMiddleware::class]);
 $this->app->singleton(\Touchque\Touchque::class, fn () => new \Touchque\Touchque());
 ```
 
-The middleware takes the client from Laravel's container on the first request: your binding, or
-one built from `TQ_API_KEY` / `TQ_API_SECRET`.
+The middleware takes its client from its constructor (`new TouchqueMiddleware($tq)`), else from Laravel's
+container on the first request: a contextual binding (`$app->when(TouchqueMiddleware::class)->needs(Touchque::class)`),
+your binding, or one built from `TQ_API_KEY` / `TQ_API_SECRET`. It ignores `Guard::setDefaultClient()` (that is
+for `Guard::run(null, …)`), so a test binds its client in the container before the request:
+`$this->app->instance(\Touchque\Touchque::class, new \Touchque\Touchque(new \Touchque\Config('tq_test_key', 'test_secret', $fakeApiUrl)));`.
 
 ```php
 // routes/api.php
@@ -469,12 +472,38 @@ $jag = CrossAppAccess::requestIdJag(['issuer' => 'https://sso.touchque.com', 'cl
 $tokens = CrossAppAccess::redeemIdJag(['tokenEndpoint' => 'https://auth.files.example/token', 'clientId' => 'acme',
     'clientSecret' => $filesSecret, 'assertion' => $jag['assertion']]);
 
-// Your own authorization server (jwt-bearer grant):
-$claims = (new IdJagVerifier(['issuer' => 'https://sso.touchque.com', 'audience' => 'https://auth.files.example']))
-    ->verify($_POST['assertion'], $authenticatedClientId);
+// Your own authorization server (jwt-bearer grant). Build the verifier once and keep it: its key cache and
+// used-once jtis live in the instance. Under PHP-FPM each request starts empty, so keep the jtis in a shared store:
+$verifier = new IdJagVerifier(['issuer' => 'https://sso.touchque.com', 'audience' => 'https://auth.files.example',
+    'firstUse' => fn (string $jti, int $exp) => $redis->set("idjag:{$jti}", 1, ['nx', 'ex' => max(1, $exp + 60 - time())])]);
+$claims = $verifier->verify($_POST['assertion'], $authenticatedClientId);
 
 AgentCard::verify($cardJson, ['cardUrl' => 'https://agent.example/.well-known/agent-card.json']);
 ```
+
+**DPoP binding (RFC 9449, optional).** Give one key to both calls: the identity provider binds the ID-JAG to it (`cnf.jkt`), so a copy without the key is useless. `dpopBound` is false when the returned ID-JAG does not carry the key's thumbprint (the identity provider ignored the proof). A token endpoint that answers 400 or 401 `use_dpop_nonce` with a `DPoP-Nonce` header gets the same request once more, with a new proof carrying that nonce, never a third time, when the header is one value of nonce syntax (printable ASCII but space, `"` and `\`); otherwise, or when it still refuses, you get the `TouchqueIdJagException`, with the latest valid nonce the server sent in `$e->dpopNonce` (null when there was none). When `$tokens['token_type']` is `DPoP`, the access token is bound to the key too: each call with it sends `Authorization: DPoP <token>` and a new proof for its method and URL, made with the token. `'method'` is trimmed and uppercased (empty: `POST`), an unknown option such as `'access_token'` throws `TouchqueConfigException`, and the proof's `htu` is the URL with scheme and host lowercased, the default port dropped, `/` for an empty path, the path as given, and no query or fragment. The verifier takes the DPoP proof key's thumbprint as its third argument and returns the bound one as `cnfJkt` (null when the ID-JAG is unbound).
+
+```php
+use Touchque\AgentKeys;
+
+$dpopKey = CrossAppAccess::createIdJagDpopKey();   // ['privateKey', 'publicJwk', 'thumbprint']; keep it in this process
+$jag = CrossAppAccess::requestIdJag(['issuer' => 'https://sso.touchque.com', 'clientId' => $clientId, 'clientSecret' => $secret,
+    'idToken' => $idToken, 'audience' => 'https://auth.files.example', 'dpopKey' => $dpopKey]);   // $jag['dpopBound']
+$tokens = CrossAppAccess::redeemIdJag(['tokenEndpoint' => 'https://auth.files.example/token', 'clientId' => 'acme',
+    'clientSecret' => $filesSecret, 'assertion' => $jag['assertion'], 'dpopKey' => $dpopKey]);
+
+// A call with the DPoP-bound access token: a new proof each time ('nonce' => its DPoP-Nonce when the API asks for one).
+$url = 'https://files.example/v1/files';
+$headers = [
+    'Authorization: DPoP ' . $tokens['access_token'],
+    'DPoP: ' . CrossAppAccess::idJagDpopProof($dpopKey, $url, ['method' => 'GET', 'accessToken' => $tokens['access_token']]),
+];
+
+// Your own authorization server, once it has verified the request's DPoP proof ($proofJwk: its header's jwk, P-256 or Ed25519):
+$claims = $verifier->verify($_POST['assertion'], $authenticatedClientId, AgentKeys::thumbprint($proofJwk));   // $claims['cnfJkt']
+```
+
+An authorization server of another company that accepts Touchque ID-JAGs must verify the DPoP proof itself (`typ` `dpop+jwt`, the signature with the public `jwk` in its header, `htm`, `htu`, `iat`, each `jti` once) and must refuse a bound ID-JAG (`cnf.jkt`) unless the proof key's thumbprint matches; this SDK's `IdJagVerifier::verify()` does the `cnf.jkt` part when given that thumbprint (without it, or with another, a bound ID-JAG is refused before its `jti` is used up).
 
 ## Silent sign-ins (stop asking when nothing is new)
 

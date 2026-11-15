@@ -14,6 +14,9 @@ use Touchque\Exceptions\TouchqueIdJagException;
  *   $claims = $v->verify($_POST['assertion'], $authenticatedClientId);
  *   // $claims['sub'] (the member at that identity provider), 'email', 'scopes', 'resource', 'tenant'
  *
+ * An authorization server that checks DPoP proofs passes the proof key's thumbprint:
+ *   $claims = $v->verify($_POST['assertion'], $authenticatedClientId, $dpopJkt);   // $claims['cnfJkt']
+ *
  * Options: issuer, audience, jwksUri?, clockSkew? (60), firstUse? (callable(string $jti, int $exp): bool,
  * a shared store such as Redis SET NX; memory in this process by default). Needs ext-openssl
  * (EdDSA: ext-sodium).
@@ -93,8 +96,12 @@ class IdJagVerifier
         return $this->keys[$kid] ?? null;
     }
 
-    /** The ID-JAG, checked and used once: its claims, or TouchqueIdJagException (error invalid_grant). */
-    public function verify(string $assertion, string $clientId): array
+    /**
+     * The ID-JAG, checked and used once: its claims, or TouchqueIdJagException (error invalid_grant).
+     * $dpopJkt: the thumbprint of the DPoP proof you verified on this request, if any; an ID-JAG bound
+     * to a key (cnf.jkt) is refused without a matching one.
+     */
+    public function verify(string $assertion, string $clientId, ?string $dpopJkt = null): array
     {
         $bad = static fn (string $m) => new TouchqueIdJagException('invalid_grant', $m);
         $parts = explode('.', $assertion);
@@ -141,6 +148,20 @@ class IdJagVerifier
         if (!is_string($c['sub'] ?? null) || !is_string($c['jti'] ?? null)) {
             throw $bad('sub and jti are required');
         }
+        // Before the jti is spent: a copy without the key cannot use the ID-JAG up.
+        $cnfJkt = null;
+        if (array_key_exists('cnf', $c)) {
+            if (!is_array($c['cnf']) || !is_string($c['cnf']['jkt'] ?? null)) {
+                throw $bad('unsupported confirmation method (only DPoP cnf.jkt)');
+            }
+            if ($dpopJkt === null || $dpopJkt === '') {
+                throw $bad('bound to a DPoP key: a DPoP proof with that key is required');
+            }
+            if (!hash_equals($c['cnf']['jkt'], $dpopJkt)) {
+                throw $bad('the DPoP proof was made with another key');
+            }
+            $cnfJkt = $c['cnf']['jkt'];
+        }
         if (!($this->firstUse)($c['jti'], (int)$c['exp'])) {
             throw $bad('already used');
         }
@@ -149,7 +170,7 @@ class IdJagVerifier
             'issuedAt' => (int)$c['iat'], 'expiresAt' => (int)$c['exp'],
             'scopes' => is_string($c['scope'] ?? null) && $c['scope'] !== '' ? explode(' ', $c['scope']) : [],
             'resource' => $c['resource'] ?? null, 'tenant' => $c['tenant'] ?? null, 'email' => $c['email'] ?? null,
-            'authTime' => $c['auth_time'] ?? null, 'amr' => $c['amr'] ?? null, 'claims' => $c,
+            'authTime' => $c['auth_time'] ?? null, 'amr' => $c['amr'] ?? null, 'cnfJkt' => $cnfJkt, 'claims' => $c,
         ];
     }
 }

@@ -381,6 +381,32 @@ class LaravelMiddlewareTest extends TestCase
         });
     }
 
+    public function testATestBindsItsClientInTheContainerNotWithSetDefaultClient(): void
+    {
+        // The README's testing line: $this->app->instance(Touchque::class, $fake).
+        self::$api->link('bound@acme.com');
+        $handler = fn () => new JsonResponse(['ran' => true]);
+        self::withoutKeys(function () use ($handler) {
+            self::withContainer(function (Container $app) use ($handler) {
+                // Guard::setDefaultClient() is for Guard::run(null, ...): the middleware never reads it.
+                Guard::setDefaultClient($this->fakeClient());
+                try {
+                    $res = $app->make(TouchqueMiddleware::class)->handle(self::signedIn('bound@acme.com'), $handler, 'SEND_MONEY');
+                    $this->assertSame([500, self::MISCONFIGURED], [$res->getStatusCode(), json_decode($res->getContent(), true)]);
+                } finally {
+                    Guard::setDefaultClient(null);
+                }
+                $app->instance(Touchque::class, $this->fakeClient());
+                $res = $app->make(TouchqueMiddleware::class)->handle(self::signedIn('bound@acme.com'), $handler, 'SEND_MONEY');
+                $this->assertSame(202, $res->getStatusCode());
+                // A client given to the constructor wins over the container.
+                $app->instance(Touchque::class, new Touchque(new Config('tq_test_key', 'test_secret', 'http://127.0.0.1:9')));
+                $res = (new TouchqueMiddleware($this->fakeClient()))->handle(self::signedIn('bound@acme.com'), $handler, 'SEND_MONEY');
+                $this->assertSame(202, $res->getStatusCode());
+            });
+        });
+    }
+
     public function testErrorBodyIsDecidedByWhatItEncodesTo(): void
     {
         $step = self::UNAUTHENTICATED['touchque'];
