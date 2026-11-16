@@ -397,6 +397,10 @@ class Guard
      * `$enroll = false` (a guard that may not show the linking QR): a user with
      * no phone gets 202 `{"state": "enroll", "reason": "enrollment_off"}`.
      *
+     * `$ip` and `$userAgent`: the browser's. They go with the push, and with the
+     * request for a linking QR: the phone shows where the QR was asked for before
+     * it links.
+     *
      * Silent sign-ins: `$browserProof` is the browser's device-bound key proof
      * (`X-Touchque-Browser`), passed through untouched and attached to the
      * push, so its approval makes the browser known. With `$silentSignIn`

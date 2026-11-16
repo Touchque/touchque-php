@@ -8,6 +8,7 @@ use Touchque\Exceptions\TouchqueApprovalException;
 use Touchque\Exceptions\TouchqueTimeoutException;
 use Touchque\Exceptions\TouchqueConfigException;
 use Touchque\Exceptions\TouchqueNetworkException;
+use Touchque\Http\HttpClient;
 
 /**
  * The agent side: an AI agent calls Touchque with its OWN key, never with
@@ -211,7 +212,8 @@ class TouchqueAgent
         if ($body !== null) {
             $headers[] = 'Content-Type: application/json';
         }
-        [$status, $data] = $this->http($method, $url, $headers, $body !== null ? json_encode($body === [] ? new \stdClass() : $body) : null);
+        // The person's User-Agent (requestApproval's option) as HttpClient sends one: not UTF-8, it goes with U+FFFD.
+        [$status, $data] = $this->http($method, $url, $headers, $body !== null ? json_encode($body === [] ? new \stdClass() : HttpClient::withUtf8UserAgent($body)) : null);
         if ($status === 401 && !$retried && ($data['code'] ?? null) === 'invalid_token') {
             $this->token = null;
             return $this->request($method, $path, $body, true);

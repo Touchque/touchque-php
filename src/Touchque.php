@@ -101,6 +101,8 @@ class Touchque
      * Starts an approval and returns immediately — show the step in your UI.
      * `waiting` + `number`: show the number, the user picks it on the phone.
      * `enroll`: show `enroll['qrCodeDataUrl']` so the user links the Touchque app first.
+     * `$ip` / `$userAgent`: the browser's, sent with the push and with the request for
+     * the linking QR (the phone shows where the QR was asked for).
      * `$browserProof` (silent sign-ins): the `X-Touchque-Browser` header, passed through
      * untouched; once the user approves, Touchque knows this browser.
      */

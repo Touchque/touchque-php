@@ -317,6 +317,26 @@ class AgentsTest extends TestCase
         }
     }
 
+    /** The person's User-Agent, when its bytes are not UTF-8, goes with U+FFFD instead of an empty body. */
+    public function testAUserAgentThatIsNotUtf8GoesWithTheReplacementCharacter(): void
+    {
+        $tq = $this->client();
+        $user = 'agent-user-agent@example.com';
+        self::$api->link($user);
+        $tq->actionTypes->define('PAY_INVOICE', null, null, false);
+        $keys = AgentKeys::generate();
+        $created = $tq->agents->create('User-Agent bot', ['PAY_INVOICE'], ['publicKey' => $keys['publicJwk']]);
+        $agent = $this->agent($created['id'], $keys['privateJwk']);
+        $payment = self::$vectors['approvalToken']['claims']['authorization_details'][0];
+
+        $ask = $agent->requestApproval($user, 'PAY_INVOICE', [$payment], ['clientIp' => '203.0.113.7', 'userAgent' => "Mozilla/5.0 (Macintosh) caf\xe9"]);
+        $this->assertSame('pending', $ask['status']);
+        $sent = array_values(array_filter(self::$api->calls(), static fn (array $c): bool => $c['path'] === '/agents/approvals'
+            && ($c['body']['externalUsername'] ?? null) === $user));
+        $this->assertCount(1, $sent);
+        $this->assertSame(['clientIp' => '203.0.113.7', 'userAgent' => "Mozilla/5.0 (Macintosh) caf\u{FFFD}"], array_intersect_key($sent[0]['body'], ['clientIp' => true, 'userAgent' => true]));
+    }
+
     public function testBlocksListedAndLifted(): void
     {
         $tq = $this->client();

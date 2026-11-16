@@ -9,7 +9,7 @@ use Touchque\Exceptions\TouchqueNetworkException;
 
 class HttpClient
 {
-    private const SDK_VERSION = '5.3.0';
+    private const SDK_VERSION = '5.4.0';
     private Config $config;
 
     /** @internal The SDK's own log (silent unless the Config has a logger or debug). */
@@ -38,14 +38,32 @@ class HttpClient
         return $this->send('PATCH', $endpoint, self::encode($body));
     }
 
-    /** JSON with `{}` for an empty body (never `[]`). */
+    /** JSON with `{}` for an empty body (never `[]`), and a `userAgent` that is not UTF-8 made valid (withUtf8UserAgent()). */
     private static function encode(array $body): string
     {
-        $bodyStr = json_encode($body === [] ? new \stdClass() : $body);
+        $bodyStr = json_encode($body === [] ? new \stdClass() : self::withUtf8UserAgent($body));
         if ($bodyStr === false) {
             throw new \InvalidArgumentException('Invalid JSON body provided.');
         }
         return $bodyStr;
+    }
+
+    /**
+     * @internal The body with its `userAgent` fit for JSON. A browser's User-Agent header
+     * is bytes; when they are not valid UTF-8 (a stray Latin-1 byte, say), json_encode()
+     * refuses the whole body, and the push, the first-time QR or the check would fail over
+     * a header. Such a User-Agent goes out with U+FFFD (the replacement character) in place
+     * of what is not UTF-8, as JSON_INVALID_UTF8_SUBSTITUTE writes it; a valid one goes out
+     * as it is. Only this field: any other string that is not UTF-8 (a username) still
+     * fails the call, so two different names never become one.
+     */
+    public static function withUtf8UserAgent(array $body): array
+    {
+        $userAgent = $body['userAgent'] ?? null;
+        if (is_string($userAgent) && json_encode($userAgent) === false) {
+            $body['userAgent'] = (string)json_decode((string)json_encode($userAgent, JSON_INVALID_UTF8_SUBSTITUTE));
+        }
+        return $body;
     }
 
     public function get(string $endpoint, array $params = []): array

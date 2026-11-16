@@ -260,6 +260,40 @@ Without Laravel, build a `RelayHandler` with the same options plus a required
 it returns a `RelayResponse` (`getStatus()`, `getBody()`, `getHeaders()`,
 `send()`), or `null` when no relay route matches.
 
+## Where the first-time QR was asked for
+
+Before it links, the phone shows where the first-time QR was asked for (the city, the browser and the device),
+so a user tricked into scanning someone else's QR sees that person's place and device. Touchque records it from
+the request for the QR, never in the QR itself: `generateSecret()` for the first QR, and `resetSecret()` for
+each new one, which records its own request's place and device.
+
+- **`TouchqueMiddleware` and the relay send the browser's IP and User-Agent for you**, the same ones as with
+  the push: the middleware and `TouchqueRelay` take Laravel's `$request->ip()` (it follows your TrustProxies)
+  and `$request->userAgent()`, and `RelayHandler` the `$ip` and `$userAgent` you give `handle()`. The
+  relay sends them for `POST /login` and `POST /enroll/start`, its reset of a QR not scanned yet included.
+- **`Guard::run()` and `$tq->start()` send the `$ip` and `$userAgent` you pass them**, with the push and with
+  the request for each QR. Pass none and none is sent.
+- **Calling `generateSecret()` or `resetSecret()` yourself**, pass them from the request as you do for
+  `$tq->login->request()`. A reset without them leaves the new QR with none: `setupContext` is null.
+
+Touchque never refuses the request over them: it drops a port, ignores a loopback address or one that is not
+an IP, strips control characters from the User-Agent and keeps 512 characters of it; when neither is left, as
+for an older QR, `setupContext` is null. A User-Agent that is not valid UTF-8 is sent with U+FFFD (the
+replacement character) in place of its invalid bytes.
+
+`validateSecret()` returns what was recorded as `setupContext`. It is the phone's call (public on the API),
+made after scanning: its `farFromPhone` compares where the QR was asked for with the IP address of whoever
+calls it. Called from your server, it compares with your server, not with the phone.
+
+```php
+$qr = $tq->auth->generateSecret($user, $request->ip(), $request->userAgent()); // show $qr['qrCodeDataUrl']
+
+$v = $tq->auth->validateSecret($secret); // the phone's call: farFromPhone is measured from the caller
+// $v['setupContext']: null, or ['ip' => '203.0.113.7', 'location' => ['city' => 'Berlin', 'country' => 'Germany',
+//   'countryCode' => 'DE'], 'device' => ['browser' => 'Safari', 'os' => 'iOS', 'model' => 'iPhone'],
+//   'requestedAt' => '2026-11-16T09:30:00.000Z', 'farFromPhone' => true]; a field Touchque does not know is null
+```
+
 ## The three primitives, if you're not using Laravel
 
 ```php

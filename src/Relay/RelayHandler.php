@@ -16,7 +16,7 @@ use Touchque\Touchque;
  * use `Touchque\Laravel\TouchqueRelay`; anywhere else call handle() with the
  * path relative to where you mount it and send the RelayResponse.
  *
- *   POST   /enroll/start                    (auth required) -> generateSecret response
+ *   POST   /enroll/start                    (auth required) -> generateSecret response (with the browser's IP and User-Agent)
  *   GET    /enroll/status                   (auth required) -> { linked, used, deviceId }
  *   POST   /login                           (pre-auth) -> 202 { touchque: step, token } until approved (same contract as Guard)
  *   POST   /offline/challenge               (pre-auth, body.externalUsername) -> QR for a phone with no internet
@@ -182,8 +182,10 @@ class RelayHandler
         if ($userId === null) {
             return self::unauthorized();
         }
+        // The browser asking for the QR, as /login sends it: the phone shows where the QR was asked for.
+        $ip = $ctx['ip'] !== '' ? $ctx['ip'] : null;
         try {
-            return new RelayResponse(200, $this->tq->auth->generateSecret($userId));
+            return new RelayResponse(200, $this->tq->auth->generateSecret($userId, $ip, $ctx['userAgent']));
         } catch (\Throwable $error) {
             // 409: either a QR was issued and not scanned yet (safe to issue a new
             // one — no phone to lose), or a phone is ALREADY linked. Replacing a
@@ -195,7 +197,7 @@ class RelayHandler
                     if (!empty($current['used']) || !empty($current['deviceId'])) {
                         return new RelayResponse(409, ['error' => 'already_linked', 'message' => 'A phone is already linked to this account.']);
                     }
-                    return new RelayResponse(200, $this->tq->auth->resetSecret($userId));
+                    return new RelayResponse(200, $this->tq->auth->resetSecret($userId, $ip, $ctx['userAgent']));
                 } catch (\Throwable $retryError) {
                     return self::relayError($retryError);
                 }

@@ -67,6 +67,8 @@ class Steps
      *
      * A user with no phone linked gets the linking QR (`enroll`); with
      * `$enroll = false` they get `['state' => 'enroll', 'reason' => 'enrollment_off']`.
+     * `$ip` and `$userAgent` go with the push, and with the request for that QR: the
+     * phone shows where it was asked for before it links.
      *
      * `$browserProof` (silent sign-ins): the browser's device-bound key proof
      * (`X-Touchque-Browser`), passed through untouched. Once the user approves,
@@ -123,7 +125,7 @@ class Steps
                     // No phone, and this guard may not show the linking QR: final, a page stops polling.
                     return ['state' => 'enroll', 'reason' => 'enrollment_off'];
                 }
-                return self::enrollStep($client, $user);
+                return self::enrollStep($client, $user, $ip, $userAgent);
             }
             if ($err->getStatus() === 423) {
                 return ['state' => 'frozen', 'retryAfter' => $err->getRetryAfter()] + $why;
@@ -148,11 +150,14 @@ class Steps
         }
     }
 
-    /** First-time linking. Never unlinks a phone: a secret is only re-issued when the account is confirmed NOT linked. */
-    private static function enrollStep(Touchque $client, string $user): array
+    /**
+     * First-time linking. Never unlinks a phone: a secret is only re-issued when the account is confirmed NOT linked.
+     * The browser's IP and User-Agent go with the secret, as with the push.
+     */
+    private static function enrollStep(Touchque $client, string $user, ?string $ip, ?string $userAgent): array
     {
         try {
-            return self::enrollQr($client->auth->generateSecret($user));
+            return self::enrollQr($client->auth->generateSecret($user, $ip, $userAgent));
         } catch (TouchqueAPIException $err) {
             if ($err->getStatus() !== 409) {
                 throw $err;
@@ -166,7 +171,7 @@ class Steps
             if ($current && (!empty($current['used']) || !empty($current['deviceId']))) {
                 return ['state' => 'enroll', 'reason' => 'already_linked'];
             }
-            return self::enrollQr($client->auth->resetSecret($user));
+            return self::enrollQr($client->auth->resetSecret($user, $ip, $userAgent));
         }
     }
 
