@@ -807,3 +807,80 @@ MIT © [Touchque](https://touchque.com)
 ## Touchque Login (hosted sign-in)
 
 Sign-up and sign-in pages for your own customers, on your brand, with OpenID Connect. See [support.touchque.com/touchque-login](https://support.touchque.com/touchque-login) for this SDK's client and a quickstart.
+
+### Passkey domain
+
+A passkey works only on the domain it was made for (its relying party ID). By default that is the host it was made
+on (`acme.login.touchque.com` or a custom domain), so it does not work on another host. Set a passkey domain before
+customers make passkeys, and passkeys made on any of your sign-in hosts under it belong to it:
+
+```php
+$tq->identity->setPasskeyDomain('acme.com'); // passkeys made on login.acme.com belong to acme.com
+$tq->identity->setPasskeyDomain(null);       // each host its own again ('' does the same)
+```
+
+Only a proved domain: one of your verified custom domains, or a domain above one of them that your organization
+verified (Organization → Domains in the dashboard). The answer is the tenant, with `passkeyDomain`. A refusal throws
+`TouchqueAPIException` with its code in `getData()['error']`:
+
+- 409 `passkeys_exist`: customer passkeys would stop working (`getData()['count']` of them);
+- 409 `not_your_domain`: the domain is not proved;
+- 409 `organization_unavailable`: your organization's domains could not be read (try again);
+- 400 `invalid_request` with `getData()['field']` `passkeyDomain`: not a domain;
+- 400 `invalid_request` with `getData()['field']` `slug`: Touchque Login is not set up for the workspace yet (set it
+  up first with `updateTenant(['slug' => 'acme', 'displayName' => 'Acme'])`).
+
+Custom domains: `customDomains->create(['domain' => 'login.acme.com'])` answers the DNS records to add. Touchque
+checks a new domain every 5 minutes for 72 hours (`autoCheckUntil`), or now with `customDomains->verify($id)`, which
+answers the domain; `dns` is what its DNS said (`points`, `cloudflareProxy`, `caaBlocks`, `problems`).
+`customDomains->list()` returns the domains, `customDomains->get($id)` one of them (404 `not_found` when there is
+none), and `customDomains->overview()` the whole answer: `domains`, your organization's `verifiedDomains` (null when
+they could not be read) and `slugPasskeys`, customer passkeys made on `{slug}.login.touchque.com`, which do not work on
+a custom domain.
+
+### Moving customers in from your user database
+
+Customers sign in with the passwords they already have, with no bulk import: while the user store is on, Touchque
+asks your endpoint about an address that has no account in Touchque Login yet and makes the account from your
+answer. A password checked this way is kept by Touchque (Argon2id) and your endpoint is never asked about that
+customer again.
+
+```php
+$tq->identity->setUserStore(['url' => 'https://api.acme.com/touchque/user-store', 'enabled' => true]);
+$tq->identity->testUserStore();         // one signed user_store.ping: ['ok' => true, 'error' => null, 'ms' => 84]
+$store = $tq->identity->getUserStore(); // url, enabled, active, movedIn, lastCall, paused
+$tq->identity->removeUserStore();       // stop asking; accounts already moved in stay
+```
+
+Touchque POSTs JSON to your endpoint, signed like its webhooks: `user_store.verify_password` {email, password} at a
+password sign-in, `user_store.get_user` {email} at an email code, "forgot password" or a sign-up (the account is made
+without a password; the code or the reset proves the inbox), `user_store.ping` from `testUserStore()`. Each also
+carries `tenant`, `timestamp` and `jti`. The password is forwarded as it was posted: `verify()` returns an unpaired
+UTF-16 surrogate in it as U+FFFD. Answer within 5 seconds:
+
+```php
+use Touchque\Exceptions\TouchqueWebhookSignatureException;
+
+try {
+    $call = $tq->webhook->verify(file_get_contents('php://input'), $_SERVER['HTTP_X_SIGNATURE'] ?? null);
+} catch (TouchqueWebhookSignatureException $e) {
+    http_response_code(403); // not from Touchque
+    exit;
+}
+$row = isset($call['email']) ? $db->customerByEmail($call['email']) : null;
+if ($row && $call['event'] === 'user_store.verify_password' && !password_verify($call['password'], $row['hash'])) {
+    $row = null; // a wrong password and an unknown address get the same answer
+}
+header('Content-Type: application/json');
+echo json_encode(['user' => $row ? ['id' => $row['id'], 'email' => $row['email'], 'emailVerified' => (bool)$row['verified'], 'name' => $row['name']] : null]);
+```
+
+`user` takes `id` (required; kept as the account's `externalId`), `email` (the address asked), `emailVerified`,
+`name`, `givenName`, `familyName`, `nickname`, `picture` (https), `locale`, `phone`, `userMetadata` and
+`appMetadata`. `{"user": null}` or a 404 is no such customer. Any other answer, a redirect, a timeout or a body that is
+not JSON is "unavailable": the sign-in is not refused as a wrong password, and 5 in a row pause your endpoint for a
+minute (`paused`). The user store needs passwords on: `setUserStore()` answers 409 `passwords_off` while they are off,
+and turning them off answers 409 `user_store_on` while it is on. `setUserStore()` keeps what you leave out; the first
+time it needs `url` (https) and turns the store on unless `enabled` is false. `testUserStore()` (null or '') pings the
+endpoint set, and `testUserStore($url)` a URL before you save it; a failed ping is an answer (`ok` false), not an
+exception.

@@ -126,7 +126,9 @@ class Webhook
      *                                       0 disables the check.
      * @param ReplayCache|null $replayCache  When set, a second delivery of the same `jti`
      *                                       throws TouchqueWebhookReplayException.
-     * @return array The decoded payload if the signature is valid.
+     * @return array The decoded payload if the signature is valid. A string with an unpaired
+     *               UTF-16 surrogate, which JSON.stringify writes as an escape (`\ud800`) and
+     *               PHP cannot decode, comes back with U+FFFD in its place.
      * @throws TouchqueWebhookSignatureException
      * @throws TouchqueWebhookReplayException (a subclass of the above)
      */
@@ -140,7 +142,17 @@ class Webhook
         // an assoc decode turns `{}` into `[]` and a numeric-keyed object into a
         // JSON array when re-encoded, breaking the canonical form.
         $obj = json_decode($rawBody);
-        if (json_last_error() !== JSON_ERROR_NONE || !($obj instanceof \stdClass)) {
+        $canonical = null;
+        if (json_last_error() === JSON_ERROR_UTF16) {
+            // A string with an unpaired UTF-16 surrogate, written by JSON.stringify as `\ud800` (a user
+            // store request forwards the password of a sign-in posted as JSON, whatever it holds). PHP
+            // cannot hold one: the signature is checked over the body's own text, and the payload is
+            // read with U+FFFD in its place.
+            $canonical = self::canonicalFromText($rawBody);
+            $rawBody = self::withoutLoneSurrogates($rawBody);
+            $obj = json_decode($rawBody);
+        }
+        if (json_last_error() !== JSON_ERROR_NONE || !($obj instanceof \stdClass) || $canonical === '') {
             throw new TouchqueWebhookSignatureException('Invalid JSON payload');
         }
 
@@ -149,7 +161,7 @@ class Webhook
             throw new TouchqueWebhookSignatureException('No signature provided');
         }
 
-        $expected = hash_hmac('sha256', $this->canonicalize($obj), $this->config->getApiSecret());
+        $expected = hash_hmac('sha256', $canonical ?? $this->canonicalize($obj), $this->config->getApiSecret());
 
         // Do NOT include the expected signature in the exception — a caller that
         // surfaces the message would hand an attacker a signing oracle.
@@ -213,5 +225,118 @@ class Webhook
         } finally {
             ini_set('serialize_precision', (string)$precision);
         }
+    }
+
+    /**
+     * The canonical form from the body's own text, for a body PHP cannot decode: its top-level
+     * members as written, without `signature`, sorted by key (byte order, as canonicalize()) and
+     * joined. JSON.stringify writes each value the same way alone as inside the body, so for a
+     * body Touchque wrote this is what it signed. '' when the body is not a compact JSON object
+     * (JSON.stringify writes no whitespace) or a key cannot be read.
+     */
+    private static function canonicalFromText(string $json): string
+    {
+        $n = strlen($json);
+        if ($n < 2 || $json[0] !== '{' || $json[$n - 1] !== '}') {
+            return '';
+        }
+        $members = [];
+        $i = 1;
+        $end = $n === 2 ? '}' : '';
+        while ($i < $n - 1) {
+            // "key":value, up to the ',' or the closing '}' outside any string, object or array.
+            $keyStart = $i;
+            $keyEnd = self::stringEnd($json, $keyStart);
+            if ($keyEnd === null || $keyEnd >= $n || $json[$keyEnd] !== ':') {
+                return '';
+            }
+            $key = json_decode(substr($json, $keyStart, $keyEnd - $keyStart));
+            if (!is_string($key)) {
+                return '';
+            }
+            $depth = 0;
+            for ($i = $keyEnd + 1; $i < $n; $i++) {
+                $c = $json[$i];
+                if ($c === '"') {
+                    $stringEnd = self::stringEnd($json, $i);
+                    if ($stringEnd === null) {
+                        return '';
+                    }
+                    $i = $stringEnd - 1;
+                } elseif ($c === '{' || $c === '[') {
+                    $depth++;
+                } elseif (($c === '}' || $c === ']' || $c === ',') && $depth === 0) {
+                    break;
+                } elseif ($c === '}' || $c === ']') {
+                    $depth--;
+                } elseif ($c === ' ' || $c === "\t" || $c === "\n" || $c === "\r") {
+                    return '';
+                }
+            }
+            if ($i === $keyEnd + 1 || $i >= $n || $json[$i] === ']' || ($json[$i] === '}' && $i !== $n - 1)) {
+                return '';
+            }
+            if ($key !== 'signature') {
+                $members[] = [$key, substr($json, $keyStart, $i - $keyStart)];
+            }
+            $end = $json[$i];
+            $i++;
+        }
+        if ($end !== '}') {
+            return '';
+        }
+        usort($members, static fn (array $a, array $b): int => strcmp($a[0], $b[0]));
+        return '{' . implode(',', array_column($members, 1)) . '}';
+    }
+
+    /** The index just past the JSON string that opens at $i, or null when there is none. */
+    private static function stringEnd(string $json, int $i): ?int
+    {
+        $n = strlen($json);
+        if ($i >= $n || $json[$i] !== '"') {
+            return null;
+        }
+        for ($i++; $i < $n; $i++) {
+            if ($json[$i] === '\\') {
+                $i++;
+            } elseif ($json[$i] === '"') {
+                return $i + 1;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The body with each unpaired UTF-16 surrogate escape in its strings (`\ud800` with no low
+     * surrogate after it, or a low one alone) written as the escape of U+FFFD. Pairs and every other
+     * escape stay as they are.
+     */
+    private static function withoutLoneSurrogates(string $json): string
+    {
+        $out = '';
+        $n = strlen($json);
+        $inString = false;
+        for ($i = 0; $i < $n; $i++) {
+            $c = $json[$i];
+            if ($c === '"') {
+                $inString = !$inString;
+            } elseif ($inString && $c === '\\') {
+                $escape = substr($json, $i, 6);
+                if (preg_match('/^\\\\u[dD][89abAB][0-9a-fA-F]{2}$/', $escape) === 1
+                    && preg_match('/^\\\\u[dD][c-fC-F][0-9a-fA-F]{2}$/', substr($json, $i + 6, 6)) === 1) {
+                    $out .= substr($json, $i, 12);
+                    $i += 11;
+                } elseif (preg_match('/^\\\\u[dD][89a-fA-F][0-9a-fA-F]{2}$/', $escape) === 1) {
+                    $out .= '\\ufffd';
+                    $i += 5;
+                } else {
+                    $out .= substr($json, $i, 2);
+                    $i++;
+                }
+                continue;
+            }
+            $out .= $c;
+        }
+        return $out;
     }
 }

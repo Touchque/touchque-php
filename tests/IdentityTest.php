@@ -90,4 +90,61 @@ class IdentityTest extends TestCase
         $calls = self::$api->calls();
         $this->assertSame('GET /identity/users?blocked=true&emailVerified=false', $calls[0]['method'] . ' ' . $calls[0]['url']);
     }
+
+    public function testPasskeyDomain(): void
+    {
+        self::$api->reset();
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        $tq->identity->setPasskeyDomain('acme.com');
+        $tq->identity->setPasskeyDomain(null);
+        $calls = self::$api->calls();
+        $this->assertSame('PUT /identity/tenant', $calls[0]['method'] . ' ' . $calls[0]['url']);
+        $this->assertSame(['passkeyDomain' => 'acme.com'], $calls[0]['body']);
+        $this->assertSame(['passkeyDomain' => null], $calls[1]['body']);
+    }
+
+    public function testUserStore(): void
+    {
+        self::$api->reset();
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        $tq->identity->getUserStore();
+        $tq->identity->setUserStore(['url' => 'https://api.acme.test/touchque/user-store', 'enabled' => true]);
+        $tq->identity->setUserStore(['enabled' => false]);
+        $tq->identity->testUserStore();
+        $tq->identity->testUserStore('');
+        $tq->identity->testUserStore('https://staging.acme.test/touchque/user-store');
+        $tq->identity->testUserStore('0');
+        $tq->identity->removeUserStore();
+        $calls = self::$api->calls();
+        $this->assertSame([
+            'GET /identity/user-store',
+            'PUT /identity/user-store',
+            'PUT /identity/user-store',
+            'POST /identity/user-store/test',
+            'POST /identity/user-store/test',
+            'POST /identity/user-store/test',
+            'POST /identity/user-store/test',
+            'DELETE /identity/user-store',
+        ], array_map(fn ($c) => $c['method'] . ' ' . $c['url'], $calls));
+        $this->assertSame(['url' => 'https://api.acme.test/touchque/user-store', 'enabled' => true], $calls[1]['body']);
+        $this->assertSame(['enabled' => false], $calls[2]['body']);
+        // null and '' both test the endpoint set: no url in the body.
+        $this->assertSame([], $calls[3]['body']);
+        $this->assertSame([], $calls[4]['body']);
+        // Any other string goes as given, '0' too (falsy in PHP, but not empty).
+        $this->assertSame(['url' => 'https://staging.acme.test/touchque/user-store'], $calls[5]['body']);
+        $this->assertSame(['url' => '0'], $calls[6]['body']);
+    }
+
+    public function testCustomDomainVerify(): void
+    {
+        self::$api->reset();
+        $tq = new Touchque(new Config('tq_test_key', 'test_secret', self::$api->baseUrl));
+        $tq->identity->customDomains->verify('dom/1 é');
+        $tq->identity->customDomains->overview();
+        $calls = self::$api->calls();
+        $this->assertSame(['POST /identity/custom-domains/dom%2F1%20%C3%A9/verify', 'GET /identity/custom-domains'],
+            array_map(fn ($c) => $c['method'] . ' ' . $c['url'], $calls));
+        $this->assertSame([], $calls[0]['body']);
+    }
 }

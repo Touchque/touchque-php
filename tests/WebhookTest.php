@@ -172,6 +172,68 @@ class WebhookTest extends TestCase
         $this->assertSame('req_1', $result['requestId']);
     }
 
+    public function testAnUnpairedSurrogateIsCheckedOverTheBodyAsWritten(): void
+    {
+        // JSON.stringify writes an unpaired UTF-16 surrogate as an escape, which json_decode() refuses
+        // (a user store request forwards whatever password a sign-in posted). Such a body is checked
+        // over its own text: top-level members sorted by key, no whitespace, values as written.
+        $now = gmdate('Y-m-d\TH:i:s.000\Z');
+        $canonical = '{"context":{"z":"a,b}","a":["\\ud800",{"k":"]"}]},"email":"ada@acme.com","event":"user_store.verify_password",'
+            . '"note":"\\\\ud800 stays text","password":"a\\ud800b\\udc00\\ud800\\u0041\\ud83d\\ude00\\"","tenant":"acme","timestamp":"'
+            . $now . '"}';
+        $body = $this->serverWebhookRaw($canonical);
+        $this->assertNull(json_decode($body));
+
+        $result = $this->makeWebhook()->verify($body);
+
+        $this->assertSame("a\u{FFFD}b\u{FFFD}\u{FFFD}A\u{1F600}\"", $result['password']);
+        $this->assertSame('\\ud800 stays text', $result['note']);
+        $this->assertSame(['z' => 'a,b}', 'a' => ["\u{FFFD}", ['k' => ']']]], $result['context']);
+        $this->assertSame('user_store.verify_password', $result['event']);
+
+        // The signature in the header too, and members in another order: the same text, signed.
+        $members = '"tenant":"acme","password":"\\ud800","event":"user_store.ping","timestamp":"' . $now . '"';
+        $sorted = '{"event":"user_store.ping","password":"\\ud800","tenant":"acme","timestamp":"' . $now . '"}';
+        $signature = hash_hmac('sha256', $sorted, self::SECRET);
+        $this->assertSame("\u{FFFD}", $this->makeWebhook()->verify('{' . $members . '}', $signature)['password']);
+    }
+
+    public function testABodyWithAnUnpairedSurrogateIsRefusedWhenItIsNotWhatWasSigned(): void
+    {
+        $canonical = '{"email":"ada@acme.com","event":"user_store.verify_password","jti":"j1","password":"a\\ud800","tenant":"acme","timestamp":"'
+            . gmdate('Y-m-d\TH:i:s.000\Z') . '"}';
+        $body = $this->serverWebhookRaw($canonical);
+        $refused = [
+            'Invalid webhook signature' => [
+                str_replace('a\\ud800', 'b\\ud800', $body),            // another password
+                str_replace('a\\ud800', 'a\\udbff', $body),            // another surrogate
+                str_replace('a\\ud800', "a\u{FFFD}", $body),           // what it is read as (main path)
+                str_replace('"tenant":"acme"', '"tenant":"acme","tenant":"acme"', $body), // a member twice
+            ],
+            'Invalid JSON payload' => [
+                str_replace('","', '", "', $body),                      // whitespace: not what JSON.stringify writes
+                str_replace('}', ',}', $body),                          // a trailing comma
+                substr($body, 0, -1),                                   // cut short
+                '[' . $body . ']',                                      // not an object
+            ],
+        ];
+        foreach ($refused as $message => $bodies) {
+            foreach ($bodies as $tampered) {
+                try {
+                    $this->makeWebhook()->verify($tampered);
+                    $this->fail('accepted: ' . $tampered);
+                } catch (TouchqueWebhookSignatureException $e) {
+                    $this->assertSame($message, $e->getMessage(), $tampered);
+                }
+            }
+        }
+
+        $cache = new MemoryReplayCache();
+        $this->assertSame('j1', $this->makeWebhook()->verify($body, null, 300, $cache)['jti']);
+        $this->expectException(TouchqueWebhookReplayException::class);
+        $this->makeWebhook()->verify($body, null, 300, $cache);
+    }
+
     public function testErrorNeverLeaksTheExpectedSignature(): void
     {
         $rawBody = $this->serverWebhook($this->freshPayload(), 'wrong');
