@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.0.0] — 2026-11-24
+
+### Breaking
+- **Outage codes are bound to one scope (Touchque API, 2026-11-11).** `$tq->offline->totpVerifiers(array $externalUsernames, array $scope, ?int $fromStep = null, ?int $steps = null)` takes `$scope` (required): `['id' => ..., 'name' => ...]`, the organization or your own outage server the codes are for. Touchque now returns digests of that scope's own outage codes, never of the normal time-based code, so a list fetched for one scope is worthless for any other scope and `verifyTotp()` never accepts its codes. The user's phone shows the scope's code under the normal time-based code ("<name>: code for when Touchque can't be reached") once a call has named the scope for them; tell your users to type that code during an outage. The answer carries `scope` and `digestsPerStep` (1: one digest a step, PBKDF2-SHA256 2,000 iterations, 6 bytes); `matchTotpVerifier()` reads `digestsPerStep` (two a step for answers without it). A call without a scope is refused with 400 `scope_required`; quotas are per scope (429 `scope_quota_exceeded`) and per workspace (429 `integration_quota_exceeded`).
+
+### Added
+- **Offline sign-in packs: a device's next offline sign-ins** (a laptop, a kiosk, a field tablet with no network). `$tq->offline->issueDevicePack(string $externalUsername, array $scope, string $account, ?int $count = null, ?int $validDays = null)` (`POST /offline/device-packs`, `$scope` = `['id' => ..., 'name' => ...]`) returns the slots (`index`, `salt`, `digest`, `qr`: a `TQ4:` QR only the person's phone opens, `qrTerminal`), the `kdf` and `validUntil`; nothing in it can produce a code. `revokeDeviceScope(string $scopeId, ?string $externalUsername = null, ?string $reason = null)` stops a lost, stolen or reinstalled device, `reportDevicePackUse(string $scopeId, string $externalUsername, array $used)` sends the slots used offline (`[['index' => ..., 'at' => DateTimeInterface|string]]`) once it is back online. `Offline::verifyDeviceCode(array $kdf, array $slot, string $code)` checks a typed 10-character code on the device with no network: PBKDF2-SHA256 over salt || ":" || index, compared in constant time; a malformed code is refused without computing. `Offline::normalizeDeviceCode()`, `Offline::formatDeviceCode()` (`XXXXX-XXXXX`). Requires the workspace policies `offlineSignEnabled` and `offlineDevicePacksEnabled`. Tested against the shared vectors (`fixtures/offline-device-vectors.json`).
+- Offline challenge: `$tq->offline->challenge(..., ?string $qrFormat = null, bool $includeQrTerminal = false)` (new last parameters). `'compact'` is a smaller `TQ3:` QR for terminals and small screens: the same challenge and the same 7-character code, without the location block, so put what the phone should show in `$details`. The answer's `qrFormat` says the format of `qr`, and `qrTerminal` (with `$includeQrTerminal`) is the QR drawn with Unicode half blocks, ready to print in a terminal.
+
+### Removed
+- Device risk moved to its own SDK, Packagist `touchque/device-risk` (breaking: ships as 6.0.0).
+
 ## [5.5.0] — 2026-11-17
 
 ### Added

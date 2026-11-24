@@ -76,8 +76,10 @@ class Risk
      *   - userAgent        (string)
      *   - browserProof     (string) the browser's device-bound key proof (`X-Touchque-Browser`), passed through untouched
      *   - clientSignals    (string) the end user's page check from @touchque/web (startClientSignals()->encode()): software driving the browser is never silent
-     *   - deviceRisk       (string) the page's device report from @touchque/web (deviceRisk.collect): a device signal is never silent
-     *   - deviceRiskRequestId (string) the page's identification (deviceRisk.identify), preferred over deviceRisk
+     *   - deviceRisk       (string) the Touchque Device Risk identification (from the Device Risk SDK's tag or identify call); optional:
+     *                      the page's report, relayed untouched. A device signal is never silent
+     *   - deviceRiskRequestId (string) the Touchque Device Risk identification's requestId (from the Device Risk SDK's tag or
+     *                      identify call); optional, preferred over deviceRisk
      *   - maxAgeSeconds    (int >= 0) your own limit on how long ago the last phone approval in this browser may be;
      *                      0 = always ask. Touchque never goes beyond its own limit (7 days).
      *   - context          (array) for your Touchque Actions only (`event.context`)

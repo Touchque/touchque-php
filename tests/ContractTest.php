@@ -12,6 +12,7 @@ use Touchque\Exceptions\TouchqueConfigException;
 use Touchque\Exceptions\TouchqueException;
 use Touchque\Resources\Auth;
 use Touchque\Resources\Login;
+use Touchque\Resources\Offline;
 
 /**
  * Contract tests against the shared fake Touchque API — a real HTTP round
@@ -207,6 +208,84 @@ class ContractTest extends TestCase
             $this->assertSame('47', $off['body']['touchque']['offline']['challengeCode']);
         } finally {
             self::$api->opts(['numberMatch' => false]);
+        }
+    }
+
+    public function testOfflineChallengeCompactQrForATerminal(): void
+    {
+        $tq = $this->client();
+        $ch = $tq->offline->challenge('ssh@acme.com', 'LOGIN', null, null, null, null, true, null, false, 'compact', true);
+        $qrCalls = array_values(array_filter(self::$api->calls(), fn ($c) => $c['path'] === '/offline/challenge'));
+        $this->assertSame(
+            ['externalUsername' => 'ssh@acme.com', 'type' => 'LOGIN', 'qrFormat' => 'compact', 'includeQrTerminal' => true],
+            end($qrCalls)['body']
+        );
+        $this->assertStringStartsWith('TQ3:', $ch['qr']);
+        $this->assertSame('compact', $ch['qrFormat']);
+        $this->assertStringContainsString("\n", $ch['qrTerminal']);
+
+        $standard = $tq->offline->challenge('ssh@acme.com');
+        $qrCalls = array_values(array_filter(self::$api->calls(), fn ($c) => $c['path'] === '/offline/challenge'));
+        $this->assertSame(['externalUsername' => 'ssh@acme.com', 'type' => 'LOGIN'], end($qrCalls)['body']);
+        $this->assertStringStartsWith('TQ2.', $standard['qr']);
+        $this->assertSame('standard', $standard['qrFormat']);
+        $this->assertArrayNotHasKey('qrTerminal', $standard);
+    }
+
+    /** The shared fake answers 1,000 iterations, and the code of slot i is "ABCDEFGH" + two alphabet characters from i. */
+    private static function fakeDeviceCode(int $index): string
+    {
+        $a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        return 'ABCDEFGH' . $a[$index % 32] . $a[intdiv($index, 32) % 32];
+    }
+
+    public function testOfflineDevicePacksIssueCheckReportRevoke(): void
+    {
+        self::$api->link('laptop@acme.com');
+        $tq = $this->client();
+        $scope = ['id' => 'pc-0f1e2d3c4b5a6978', 'name' => 'LAPTOP-JANE'];
+        $last = function (string $path): array {
+            $calls = array_values(array_filter(self::$api->calls(), fn ($c) => $c['path'] === $path));
+            return end($calls)['body'];
+        };
+
+        $pack = $tq->offline->issueDevicePack('laptop@acme.com', $scope, 'ACME\\jane', 3);
+        $this->assertSame(['externalUsername' => 'laptop@acme.com', 'scope' => $scope, 'account' => 'ACME\\jane', 'count' => 3], $last('/offline/device-packs'));
+        $this->assertSame([1, 2, 3], array_column($pack['slots'], 'index'));
+        $this->assertSame(['0123456789abcdef', 10, 1000, 'TQ4:SLOT1'], [$pack['scope']['epoch'], $pack['codeLength'], $pack['kdf']['iterations'], $pack['slots'][0]['qr']]);
+        $this->assertTrue(Offline::verifyDeviceCode($pack['kdf'], $pack['slots'][0], strtolower(Offline::formatDeviceCode(self::fakeDeviceCode(1)))));
+        $this->assertFalse(Offline::verifyDeviceCode($pack['kdf'], $pack['slots'][0], self::fakeDeviceCode(2)));
+        $this->assertTrue(Offline::verifyDeviceCode($pack['kdf'], $pack['slots'][1], self::fakeDeviceCode(2)));
+        // The next pack continues the indexes.
+        $this->assertSame([4, 5], array_column($tq->offline->issueDevicePack('laptop@acme.com', $scope, 'ACME\\jane', 2)['slots'], 'index'));
+
+        $now = new \DateTimeImmutable();
+        $this->assertSame(['recorded' => 1, 'ignored' => 1], $tq->offline->reportDevicePackUse($scope['id'], 'laptop@acme.com', [['index' => 1, 'at' => $now], ['index' => 99, 'at' => $now]]));
+        try {
+            $tq->offline->reportDevicePackUse('pc-other', 'laptop@acme.com', [['index' => 1, 'at' => $now]]);
+            $this->fail('expected 404 unknown_scope');
+        } catch (TouchqueAPIException $e) {
+            $this->assertSame(404, $e->getStatus());
+        }
+
+        $this->assertSame(['revoked' => 1], $tq->offline->revokeDeviceScope($scope['id'], null, 'lost'));
+        $this->assertSame(['scopeId' => $scope['id'], 'reason' => 'lost'], $last('/offline/device-packs/revoke'));
+        foreach ([['laptop@acme.com', $scope, 409], ['nobody@acme.com', $scope, 404]] as [$user, $s, $status]) {
+            try {
+                $tq->offline->issueDevicePack($user, $s, 'ACME\\jane');
+                $this->fail("expected $status");
+            } catch (TouchqueAPIException $e) {
+                $this->assertSame($status, $e->getStatus());
+            }
+        }
+        self::$api->opts(['devicePacksDisabled' => true]);
+        try {
+            $tq->offline->issueDevicePack('laptop@acme.com', ['id' => 'pc-2', 'name' => 'KIOSK'], 'kiosk');
+            $this->fail('expected 403 offline_device_packs_disabled');
+        } catch (TouchqueAPIException $e) {
+            $this->assertSame(403, $e->getStatus());
+        } finally {
+            self::$api->opts(['devicePacksDisabled' => false]);
         }
     }
 

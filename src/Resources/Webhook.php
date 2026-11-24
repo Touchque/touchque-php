@@ -34,10 +34,6 @@ class Webhook
     public const EVENT_DEVICE_UNLINKED = 'DEVICE_UNLINKED';
     public const EVENT_PASSKEY_REGISTERED = 'PASSKEY_REGISTERED';
     public const EVENT_PASSKEY_DELETED = 'PASSKEY_DELETED';
-    /** Device risk: an identification or a deviceRisk->check raised a signal that asks for more. Never a trait. */
-    public const EVENT_DEVICE_RISK_SIGNAL = 'DEVICE_RISK_SIGNAL';
-    /** Device risk: an alert rule of the workspace went off. */
-    public const EVENT_DEVICE_RISK_ALERT = 'DEVICE_RISK_ALERT';
     /** After the call, the user confirmed a provisional approval was theirs: critical actions are allowed again. */
     public const EVENT_APPROVAL_RECONFIRMED = 'APPROVAL_RECONFIRMED';
     /** The user took an approval back (`reason` COACHED or UNDO): end the session built on it. */

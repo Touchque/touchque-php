@@ -118,12 +118,12 @@ class Login
         if ($clientSignals !== null && $clientSignals !== '') {
             $payload['clientSignals'] = $clientSignals;
         }
-        // The page's device report from @touchque/web (deviceRisk.collect), when the workspace turned Device risk on:
-        // its signals only ever ask for more.
+        // The Touchque Device Risk identification (from the Device Risk SDK's tag or identify call); optional:
+        // the page's report, relayed untouched. Its signals only ever ask for more.
         if ($deviceRisk !== null && $deviceRisk !== '') {
             $payload['deviceRisk'] = $deviceRisk;
         }
-        // Or the page's identification (deviceRisk.identify), for this account only.
+        // Or its requestId (the Device Risk SDK's touchque_request_id field or identify call), for this account only.
         if ($deviceRiskRequestId !== null && $deviceRiskRequestId !== '') {
             $payload['deviceRiskRequestId'] = $deviceRiskRequestId;
         }

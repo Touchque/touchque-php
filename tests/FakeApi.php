@@ -109,12 +109,6 @@ class FakeApi
         return $this->getJson('/__test/last-check');
     }
 
-    /** Device risk: the query of the last GET /device-risk/events. */
-    public function lastDeviceRiskSearch(): ?array
-    {
-        return $this->getJson('/__test/last-device-risk-search');
-    }
-
     /** Forgets every request, linked user, known browser and option. */
     public function reset(): void
     {

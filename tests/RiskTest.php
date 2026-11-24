@@ -54,6 +54,18 @@ class RiskTest extends TestCase
         $this->assertSame(['prompt' => false, 'reasons' => [['code' => 'known_browser', 'text' => 'Known']], 'assurance' => 'high', 'silentMode' => 'enforce'], $res);
     }
 
+    /** The bridge to Touchque Device Risk: the page's identification goes through untouched. */
+    public function testCheckPassesTheDeviceRiskIdentificationThrough(): void
+    {
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->once())->method('post')->with(
+            '/risk/check',
+            ['externalUsername' => 'ayse@acme.com', 'deviceRisk' => 'REPORT', 'deviceRiskRequestId' => 'dre_aaaaaaaaaaaaaaaaaaaaaa']
+        )->willReturn(['prompt' => true]);
+        $res = (new Risk($http))->check(['externalUsername' => 'ayse@acme.com', 'deviceRisk' => 'REPORT', 'deviceRiskRequestId' => 'dre_aaaaaaaaaaaaaaaaaaaaaa']);
+        $this->assertTrue($res['prompt']);
+    }
+
     public function testBadOptionsAreRefusedBeforeAnyCall(): void
     {
         $http = $this->createMock(HttpClient::class);

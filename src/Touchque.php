@@ -8,7 +8,6 @@ use Touchque\Resources\Agents;
 use Touchque\Resources\Identity;
 use Touchque\Resources\Mobile;
 use Touchque\Resources\QrPairings;
-use Touchque\Resources\DeviceRisk;
 use Touchque\Resources\SafeGuard;
 use Touchque\Resources\ActionTypes;
 use Touchque\Resources\Auth;
@@ -55,8 +54,6 @@ class Touchque
     public Mobile $mobile;
     /** Pairing a browser by QR code: the phone that scans it is the one asked to approve. */
     public QrPairings $qrPairings;
-    /** Device risk: the device on your sign-up, reset, sign-in or approval page (a paid add-on). */
-    public DeviceRisk $deviceRisk;
     /** Safe Guard: Safe transactions approved on the approver's phone, for TouchqueSafeGuard. */
     public SafeGuard $safeGuard;
 
@@ -87,7 +84,6 @@ class Touchque
         $this->identity = new Identity($httpClient);
         $this->mobile = new Mobile($httpClient);
         $this->qrPairings = new QrPairings($httpClient);
-        $this->deviceRisk = new DeviceRisk($httpClient);
         $this->safeGuard = new SafeGuard($httpClient);
     }
 
